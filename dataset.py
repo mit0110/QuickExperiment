@@ -6,7 +6,6 @@ import numpy
 import utils
 
 from collections import namedtuple
-from sklearn.model_selection import StratifiedShuffleSplit
 
 
 Partition = namedtuple('Partition', ['instances', 'labels'])
@@ -260,7 +259,7 @@ class BaseSampledDataset(BaseDataset):
 
     def set_current_sample(self, sample):
         """Changes the dataset to the current sample."""
-        assert sample < self.samples_num and sample >= 0
+        assert 0 <= sample < self.samples_num
         self.current_sample = sample
         self._load_sample()
 
@@ -278,7 +277,7 @@ class BaseSampledDataset(BaseDataset):
             directory_name, 'sample_indices', name))
 
 
-class SimpleSampledDataset(BaseSampledDataset):
+class SimpleSampledDataset(BaseSampledDataset, SimpleDataset):
     """Simple sampled dataset using 2D numpy arrays as instances (in memory).
 
     Attributes:
@@ -300,31 +299,25 @@ class SimpleSampledDataset(BaseSampledDataset):
         assert sum(partition_sizes.values()) <= 1.0
         assert instances.shape[0] == labels.shape[0]
         self.samples_num = samples_num
-        self.sample_indices = [
+        self._sample_indices = [
             dict.fromkeys(partition_sizes) for _ in range(samples_num)]
         self._instances = instances
         self._labels = labels
-        remainings = [numpy.arange(instances.shape[0])] * samples_num
-        for partition in reversed(sorted(partition_sizes,
-                                         key=partition_sizes.get)):
-            size = partition_sizes[partition]
-            self._get_partition_indices(partition, remainings, size)
-
-    def _get_partition_indices(self, partition, remainings, size):
-        # Recalculate the proportion of instances to take with the new
-        # size of the remaining instances.
-        logging.info("Original size {}".format(size))
-        size = self._instances.shape[0] * size / float(remainings[0].shape[0])
-        logging.info("New remaining size {}".format(size))
-        partition_generator = StratifiedShuffleSplit(n_splits=self.samples_num,
-                                                     test_size=size)
         for sample in range(self.samples_num):
-            sample_remainings = remainings[sample]
-            split = partition_generator.split(
-                self._instances[sample_remainings],
-                self._labels[sample_remainings])
-            print(split)
-            remainings[sample], self.sample_indices[sample][partition] = split
+            self._sample_indices[sample] = self._split_sample(partition_sizes)
+
+    def _split_sample(self, partition_sizes):
+        indices = numpy.arange(self._instances.shape[0])
+        numpy.random.shuffle(indices)
+        partitions = partition_sizes.items()
+        cumulative_sizes = numpy.cumsum([x[1] for x in partitions])
+        splits = numpy.split(
+            indices, (cumulative_sizes * indices.shape[0]).astype(numpy.int32))
+        # The last split is the remaining portion.
+        sample_index = {}
+        for partition, split in zip(partitions, splits[:-1]):
+            sample_index[partition[0]] = split
+        return sample_index
 
     def load_from_files(self, directory_name, instances_filename=None,
                         labels_filename=None, name=None):
@@ -357,3 +350,9 @@ class SimpleSampledDataset(BaseSampledDataset):
     def _load_sample(self):
         """Loads current sample in the attibute datasets."""
         indices = self._sample_indices[self.current_sample]
+        for partition, index in indices.iteritems():
+            partition_labels = None
+            if self._labels is not None:
+                partition_labels = self._labels[index]
+            self.datasets[partition] = Partition(
+                instances=self._instances[index], labels=partition_labels)

@@ -43,11 +43,11 @@ class SimpleSampledDatasetTest(unittest.TestCase):
     """Test for class SimpleSampledDataset"""
     def setUp(self):
         num_examples = 10
-        self.matrix = numpy.random.random((num_examples * 2, 3))
+        self.matrix = numpy.random.random((num_examples * 3, 3))
         self.labels = (
             numpy.random.random((num_examples,)) * 10).astype(numpy.int16)
-        # We ensure each label is at least two times
-        self.labels = numpy.concatenate([self.labels, self.labels])
+        # We ensure each label is at least three times
+        self.labels = numpy.concatenate([self.labels, self.labels, self.labels])
         self.partition_sizes = {
             'train': 0.5, 'test': 0.25, 'val': 0.1
         }
@@ -55,14 +55,33 @@ class SimpleSampledDatasetTest(unittest.TestCase):
 
     def test_sample_sizes(self):
         """Test samples have correct proportion"""
+        samples = 5
+        self.dataset.create_samples(self.matrix, self.labels, samples,
+                                    self.partition_sizes)
+        for sample in range(samples):
+            self.dataset.set_current_sample(sample)
+            for partition, proportion in self.partition_sizes.iteritems():
+                self.assertEqual(int(proportion * self.matrix.shape[0]),
+                                 self.dataset.num_examples(partition))
+
+    def test_unlimited_batches(self):
+        """Tests the dataset can produce unlimited batches."""
         self.dataset.create_samples(self.matrix, self.labels, 5,
                                     self.partition_sizes)
         self.dataset.set_current_sample(0)
-        for partition, proportion in self.partition_sizes.iteritems():
-            self.assertEqual(proportion * self.matrix.shape[0],
-                             self.dataset.num_examples(partition))
+        for i in range(10):
+            batch, labels = self.dataset.next_batch(batch_size=2,
+                                                    partition_name='train')
+            self.assertEqual(batch.shape[0], 2)
+            self.assertEqual(labels.shape[0], 2)
+            for row, label in zip(batch, labels):
+                instance_index = numpy.where(row == self.matrix)[0]
+                self.assertNotEqual(instance_index.shape[0], 0)
+                instance_index = instance_index[0]
 
-
+                self.assertEqual(
+                    self.labels[instance_index], label
+                )
 
 
 if __name__ == '__main__':
