@@ -24,6 +24,7 @@ class BaseDataset(object):
     Attributes:
         datasets (dict): a map from partition names to Partitions.
         indices (dict): a map from partition names to their indices.
+        feature_vector_size (int): the size of each instance.
     """
 
     def __init__(self):
@@ -38,6 +39,21 @@ class BaseDataset(object):
 
         Returns:
             int: the number of examples.
+        """
+        raise NotImplementedError
+
+    @property
+    def feature_vector_size(self):
+        raise NotImplementedError
+
+    def classes_num(self, partition_name='train'):
+        """Returns the number of unique classes in a partition of the dataset.
+
+        Args:
+            partition_name (str): name of the partition to use.
+
+        Returns:
+            int: the number of uniqu classes.
         """
         raise NotImplementedError
 
@@ -100,6 +116,18 @@ class BaseDataset(object):
             filename = '{}.p'.format(objective)
         return os.path.join(directory_name, filename)
 
+    def traverse_dataset(self, batch_size, partition_name):
+        """Generates batches of instances and labels from a partition.
+
+        The iterator ends when the dataset has been entirely returned.
+
+        Args:
+            batch_size (int): the size of each batch to generate.
+            partition_name (str): the name of the partition to create the
+                batches from.
+        """
+        raise NotImplementedError
+
 
 class SimpleDataset(BaseDataset):
     """Simple dataset with 2D numpy array as instances.
@@ -112,6 +140,7 @@ class SimpleDataset(BaseDataset):
     def __init__(self):
         super(SimpleDataset, self).__init__()
         self._iteration_index = 0
+        self._classes_num = 0
 
     def num_examples(self, partition_name='train'):
         """Returns the number of examples in a partition of the dataset.
@@ -123,6 +152,21 @@ class SimpleDataset(BaseDataset):
             int: the number of examples.
         """
         return self.datasets[partition_name].instances.shape[0]
+
+    @property
+    def feature_vector_size(self):
+        return self.datasets.values()[0].instances.shape[1]
+
+    def classes_num(self, partition_name='train'):
+        """Returns the number of unique classes in a partition of the dataset.
+
+        Args:
+            partition_name (str): name of the partition to use.
+
+        Returns:
+            int: the number of uniqu classes.
+        """
+        return numpy.unique(self.datasets[partition_name].labels).shape[0]
 
     def save_to_files(self, directory_name, name=None):
         """Saves all dataset files into a directory.
@@ -152,6 +196,7 @@ class SimpleDataset(BaseDataset):
             partition_labels = labels[index] if labels is not None else None
             self.datasets[partition] = Partition(instances=matrix[index],
                                                  labels=partition_labels)
+
 
     def load_from_files(self, directory_name, instances_filename=None,
                         labels_filename=None, name=None):
@@ -214,6 +259,28 @@ class SimpleDataset(BaseDataset):
             batch_labels = self.datasets[partition_name].labels[start:end]
         return self.datasets[partition_name].instances[start:end], batch_labels
 
+    def traverse_dataset(self, batch_size, partition_name):
+        """Generates batches of instances and labels from a partition.
+
+        The iterator ends when the dataset has been entirely returned.
+
+        Args:
+            batch_size (int): the size of each batch to generate.
+            partition_name (str): the name of the partition to create the
+                batches from.
+        """
+        instances = self.datasets[partition_name].instances
+        labels = self.datasets[partition_name].labels
+
+        for step in numpy.arange(instances.shape[0], step=batch_size):
+            step_labels = None
+            if labels is not None:
+                step_labels = labels[
+                              step:min(step + batch_size, labels.shape[0])]
+            step_instances = instances[step:min(
+                step + batch_size, instances.shape[0])]
+            yield step_instances, step_labels
+
 
 class BaseSampledDataset(BaseDataset):
     """Abstraction to handle a dataset divided into multiple samples.
@@ -241,7 +308,8 @@ class BaseSampledDataset(BaseDataset):
         if len(self._sample_indices) > 0:
             self._sample_indices[self.current_sample] = new_indices
 
-    def create_samples(self, instances, labels, samples_num, partition_sizes):
+    def create_samples(self, instances, labels, samples_num, partition_sizes,
+                       use_numeric_labels=False):
         """Generates the partitions for each sample.
 
         Args:
@@ -251,6 +319,8 @@ class BaseSampledDataset(BaseDataset):
             partition_sizes (dict): a map from the partition names to their
                 proportional sizes. The sum of all values must be less or equal
                 to one.
+            use_numeric_labels (bool): if True, the labels are converted to
+                a continuous range of integers.
         """
         raise NotImplementedError
 
@@ -258,7 +328,11 @@ class BaseSampledDataset(BaseDataset):
         raise NotImplementedError
 
     def set_current_sample(self, sample):
-        """Changes the dataset to the current sample."""
+        """Changes the dataset to the current sample.
+
+        Args:
+            sample (int): The sample number to load.
+        """
         assert 0 <= sample < self.samples_num
         self.current_sample = sample
         self._load_sample()
@@ -293,16 +367,35 @@ class SimpleSampledDataset(BaseSampledDataset, SimpleDataset):
         # Numpy matrixes can be loaded in memory
         self._instances = None
         self._labels = None
+        # Attribute to save the labels' names if numeric classes are used.
+        self._classes = None
 
-    def create_samples(self, instances, labels, samples_num, partition_sizes):
-        """Creates samples with a Kfold partition generator."""
+    def create_samples(self, instances, labels, samples_num, partition_sizes,
+                       use_numeric_labels=False):
+        """Creates samples with a random partition generator.
+
+        Args:
+            instances (:obj: iterable): instances to divide in samples.
+            labels (:obj: iterable): labels to divide in samples.
+            samples_num (int): the number of samples to create.
+            partition_sizes (dict): a map from the partition names to their
+                proportional sizes. The sum of all values must be less or equal
+                to one.
+            use_numeric_labels (bool): if True, the labels are converted to
+                a continuous range of integers.
+        """
         assert sum(partition_sizes.values()) <= 1.0
         assert instances.shape[0] == labels.shape[0]
         self.samples_num = samples_num
         self._sample_indices = [
             dict.fromkeys(partition_sizes) for _ in range(samples_num)]
         self._instances = instances
-        self._labels = labels
+        if not use_numeric_labels:
+            self._labels = labels
+        else:
+            self._classes, self._labels = numpy.unique(labels,
+                                                       return_inverse=True)
+
         for sample in range(self.samples_num):
             self._sample_indices[sample] = self._split_sample(partition_sizes)
 
@@ -356,3 +449,17 @@ class SimpleSampledDataset(BaseSampledDataset, SimpleDataset):
                 partition_labels = self._labels[index]
             self.datasets[partition] = Partition(
                 instances=self._instances[index], labels=partition_labels)
+
+    def revert_labels(self, labels):
+        """Converts an array of labels into their original form.
+
+        Used only if the samples where created with use_numeric_labels."""
+        if self._classes is None:
+            return labels
+        return self._classes[labels]
+
+    def classes_num(self, _=None):
+        if self._classes is not None:
+            return self._classes.shape[0]
+        return numpy.unique(self._labels).shape[0]
+

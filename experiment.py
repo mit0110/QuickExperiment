@@ -97,6 +97,11 @@ class SampledExperiment(Experiment):
             return 'sample' + str(sample)
         return self.name + '_sample' + str(sample)
 
+    def _create_model(self, sample=None):
+        self.model = self.model_class(
+            self.dataset, name=self._get_name_for_sample(sample),
+            **self.model_arguments)
+
     def _save_predictions(self, predictions, partition_name, sample=0):
         filename = '{}_predictions_{}.csv'.format(
             partition_name, self._get_name_for_sample(sample))
@@ -130,7 +135,7 @@ class SampledExperiment(Experiment):
         for sample in range(self.dataset.samples_num):
             # Train classifier
             self.dataset.set_current_sample(sample)
-            self._create_model()
+            self._create_model(sample)
             self.model.fit('train')
             # Save model
             if save_model:
