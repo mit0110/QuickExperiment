@@ -139,7 +139,7 @@ class SimpleDataset(BaseDataset):
 
     def __init__(self):
         super(SimpleDataset, self).__init__()
-        self._iteration_index = 0
+        self._last_batch_end = 0
         self._classes_num = 0
 
     def num_examples(self, partition_name='train'):
@@ -236,10 +236,10 @@ class SimpleDataset(BaseDataset):
             partition_name (str): the name of the partition to create the
                 batches from.
         """
-        start = self._iteration_index
-        self._iteration_index += batch_size
+        start = self._last_batch_end
+        self._last_batch_end += batch_size
 
-        if self._iteration_index > self.num_examples(partition_name):
+        if self._last_batch_end > self.num_examples(partition_name):
             # Shuffle the data
             perm = numpy.arange(self.num_examples())
             numpy.random.shuffle(perm)
@@ -250,10 +250,10 @@ class SimpleDataset(BaseDataset):
                 self.datasets[partition_name].instances[perm], new_labels)
             # Start next iteration
             start = 0
-            self._iteration_index = batch_size
+            self._last_batch_end = batch_size
             assert batch_size <= self.num_examples(partition_name)
 
-        end = self._iteration_index
+        end = self._last_batch_end
         batch_labels = None
         if self.datasets[partition_name].labels is not None:
             batch_labels = self.datasets[partition_name].labels[start:end]
@@ -463,3 +463,92 @@ class SimpleSampledDataset(BaseSampledDataset, SimpleDataset):
             return self._classes.shape[0]
         return numpy.unique(self._labels).shape[0]
 
+
+
+class SequenceDataset(SimpleSampledDataset):
+    """Representation of a dataset where instances are sequences."""
+
+    def __init__(self):
+        super(SequenceDataset, self).__init__()
+        self._lengths = None
+
+    @staticmethod
+    def _get_sequence_lengths(sequence):
+        vectorized_function = numpy.vectorize(lambda x: len(x))
+        return vectorized_function(sequence)
+
+    @property
+    def feature_vector_size(self):
+        first_sequence = self.datasets.values()[0].instances[0]
+        if isinstance(first_sequence[0], numpy.ndarray):
+            return first_sequence[0].shape[0]
+        if isinstance(first_sequence[0], list):
+            return len(first_sequence[0])
+        return 1
+
+
+    def create_samples(self, instances, labels, samples_num, partition_sizes,
+                       use_numeric_labels=False, sort_by_length=False):
+        """Creates samples with a random partition generator.
+
+        Args:
+            instances (:obj: iterable): instances to divide in samples.
+            labels (:obj: iterable): labels to divide in samples.
+            samples_num (int): the number of samples to create.
+            partition_sizes (dict): a map from the partition names to their
+                proportional sizes. The sum of all values must be less or equal
+                to one.
+            use_numeric_labels (bool): if True, the labels are converted to
+                a continuous range of integers.
+            sort_by_length (bool): If True, instances are sorted according the
+                lenght of the sequence.
+        """
+        super(SequenceDataset, self).create_samples(
+            instances, labels, samples_num, partition_sizes, use_numeric_labels)
+        if sort_by_length:
+            lengths = self._get_sequence_lengths(self._instances)
+            sorted_indices = numpy.argsort(lengths)
+            self._instances = self._instances[sorted_indices]
+            self._labels = self._labels[sorted_indices]
+
+
+    def _pad_batch(self, batch_instances):
+        """Pad sequences with 0 to the length of the longer sequence in the
+        batch.
+
+        Args:
+            batch_instances: a list of sequences of size batch_size. Each
+            sequence is a matrix.
+
+        Returns:
+            A tuple with the padded batch and the original lengths.
+        """
+        lengths = self._get_sequence_lengths(batch_instances)
+        max_length = lengths.max()
+        padded_batch = numpy.zeros(
+            (batch_instances.shape[0], max_length, self.feature_vector_size))
+        for index, sequence in enumerate(batch_instances):
+            padded_batch[index,:lengths[index]] = sequence
+        return padded_batch, lengths
+
+    def next_batch(self, batch_size, partition_name='train',
+                   pad_sequences=True):
+        """Generates batches of instances and labels from a partition.
+
+        If the size of the partition is exceeded, the partition and the labels
+        are shuffled to generate further batches.
+
+        Args:
+            batch_size (int): the size of each batch to generate.
+            partition_name (str): the name of the partition to create the
+                batches from.
+            pad_sequences (bool): If True, all sequences are padded to the
+                length of the longer sequence.
+        """
+        instances, labels = super(SequenceDataset, self).next_batch(
+            batch_size, partition_name)
+        if pad_sequences:
+            instances, lengths = self._pad_batch(instances)
+        else:
+            lengths = self._get_sequence_lengths(instances)
+        return instances, labels, lengths

@@ -9,22 +9,24 @@ from model import BaseModel
 logging.basicConfig(level=logging.INFO)
 
 
-class MLPModel(BaseModel):
-    """A MultiLayer Perceptron model.
+class LSTMModel(BaseModel):
+    """A Recurrent Neural Network model with LSTM cells.
 
     Args:
         dataset (:obj: BaseDataset): An instance of BaseDataset (or
             subclass). The dataset MUST have a partition called validation.
-        layers (:obj: iterable, optional): An iterable with the size of the
-            hidden layers of the network.
+        hidden_layer_size (int): The size of the hidden layer of the network.
+        max_num_steps (int): the maximum number of steps to use during the BPTT.
+                The gradients are going to be clipped at max_num_steps.
         **kwargs: Additional arguments.
     """
 
-    def __init__(self, dataset, name=None, hidden_layers=[], batch_size=None,
+    def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
                  training_epochs=1000, logs_dirname='.', log_values=True,
-                 **kwargs):
-        super(MLPModel, self).__init__(dataset, **kwargs)
-        self.hidden_layers_sizes = hidden_layers
+                 max_num_steps=30, **kwargs):
+        super(LSTMModel, self).__init__(dataset, **kwargs)
+        self.hidden_layer_size = hidden_layer_size
+        self.max_num_steps = max_num_steps
 
         # Variable names to save the model.
         self.learning_rate = 0.01
@@ -39,18 +41,19 @@ class MLPModel(BaseModel):
         utils.safe_mkdir(self.logs_dirname)
 
     def _build_inputs(self):
-        """Generate placeholder variables to represent the input tensors.
+        """Generate placeholder variables to represent the input tensors."""
+        # Placeholder for the inputs in a given iteration.
+        self.sequences_placeholder = []
+        # self.x_placeholder is a list of placeholders. The i-th element
+        # will contain a tensor of size (batch_size, input_width) with the
+        # step number i of each sequence in the batch.
+        for step in range(self.max_num_steps):
+            self.sequences_placeholder.append(tf.placeholder(
+                tf.float32, [None, self.dataset.feature_vector_size],
+                name='input{}_placeholder'.format(step)))
 
-        These placeholders are used as inputs by the rest of the model building
-        code and will be fed in the .fit() loop, below.
-        """
-        self.instances_placeholder = tf.placeholder(
-            tf.float32,
-            shape=(None, self.dataset.feature_vector_size),
-            name='instances_placeholder')
         self.labels_placeholder = tf.placeholder(
-            tf.int32,
-            shape=(None, ),
+            tf.float32, [self.max_num_steps, None],
             name='labels_placeholder')
 
     def _build_layers(self):

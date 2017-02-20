@@ -1,5 +1,6 @@
 import dataset
 import numpy
+import random
 import unittest
 
 
@@ -82,6 +83,71 @@ class SimpleSampledDatasetTest(unittest.TestCase):
                 self.assertEqual(
                     self.labels[instance_index], label
                 )
+
+
+class SequenceDatasetTest(unittest.TestCase):
+    """Test for class SimpleSampledDataset"""
+    def setUp(self):
+        num_examples = 20
+        # The matrix is an array of sequences of varying sizes. Each
+        # sequence is an array of one element.
+        self.matrix = [
+            [numpy.array([x, x+1]) for x in range(sequence_length)]
+            for sequence_length in random.sample(k=num_examples,
+                                                 population=range(3, 28))]
+        self.matrix = numpy.array(self.matrix)
+        self.labels = (
+            numpy.random.random((num_examples,)) * 10).astype(numpy.int16)
+        # We ensure each label is at least three times
+        self.partition_sizes = {
+            'train': 0.5, 'test': 0.25, 'val': 0.1
+        }
+        self.dataset = dataset.SequenceDataset()
+
+    def test_ordered_instances(self):
+        """Test samples have correct proportion"""
+        self.dataset.create_samples(self.matrix, self.labels, 1,
+                                    self.partition_sizes, sort_by_length=True)
+        self.dataset.set_current_sample(0)
+        instances = self.dataset._instances
+        self.assertTrue(all(len(a) <= len(b) for a, b in
+                            zip(instances[:-1], instances[1:])))
+
+    def test_padded_batches(self):
+        """Tests the dataset produces batches of padded sentences."""
+        self.dataset.create_samples(self.matrix, self.labels, 1,
+                                    self.partition_sizes, sort_by_length=True)
+        self.dataset.set_current_sample(0)
+        for i in range(3):
+            batch, labels, lengths = self.dataset.next_batch(
+                batch_size=2, partition_name='train')
+            batch = batch.astype(self.matrix.dtype)
+            self.assertIsInstance(batch, numpy.ndarray)
+            self.assertEqual(len(batch.shape), 3)
+
+            self.assertEqual(batch.shape[0], 2)
+            self.assertEqual(labels.shape[0], 2)
+            self.assertEqual(lengths.shape[0], 2)
+            for index, row in enumerate(batch):
+                label = labels[index]
+                length = lengths[index]
+                original_instance = row[:length]
+
+                instance_index = None
+                for idx, instance in enumerate(self.matrix):
+                    if numpy.array_equal(instance, original_instance):
+                        instance_index = idx
+                        break
+                self.assertIsNotNone(
+                    instance_index,
+                    msg='Instances {} not present in matrix {}'.format(
+                        original_instance, self.matrix))
+
+                self.assertEqual(
+                    self.labels[instance_index], label
+                )
+                if length < batch.shape[1]:
+                    self.assertAlmostEqual(0, row[length:].max(), places=3)
 
 
 if __name__ == '__main__':
