@@ -276,6 +276,10 @@ class SimpleDataset(BaseDataset):
             batch_size (int): the size of each batch to generate.
             partition_name (str): the name of the partition to create the
                 batches from.
+
+        Yields:
+            A tuple (instances, labels) of batch_size, except in the last
+            iteration where the size can be smaller.
         """
         instances = self.datasets[partition_name].instances
         labels = self.datasets[partition_name].labels
@@ -500,7 +504,7 @@ class SequenceDataset(SimpleSampledDataset):
         if isinstance(first_sequence[0], numpy.ndarray):
             return first_sequence[0].dtype
         if isinstance(first_sequence[0], list):
-            return type(first_sequence[0])
+            return type(first_sequence[0][0])
         return int
 
     @property
@@ -565,6 +569,30 @@ class SequenceDataset(SimpleSampledDataset):
                 length of the longer sequence.
         """
         instances, labels = super(SequenceDataset, self).next_batch(
+            batch_size, partition_name)
+        if pad_sequences:
+            instances, lengths = self._pad_batch(instances)
+        else:
+            lengths = self._get_sequence_lengths(instances)
+        return instances, labels, lengths
+
+    def traverse_dataset(self, batch_size, partition_name, pad_sequences=True):
+        """Generates batches of instances and labels from a partition.
+
+        The iterator ends when the dataset has been entirely returned.
+
+        Args:
+            batch_size (int): the size of each batch to generate.
+            partition_name (str): the name of the partition to create the
+                batches from.
+            pad_sequences (bool): If True, all sequences are padded to the
+                length of the longer sequence.
+
+        Yields:
+            A tuple (instances, labels, lengths) of batch_size, except in the
+            last iteration where the size can be smaller.
+        """
+        instances, labels = super(SequenceDataset, self).traverse_dataset(
             batch_size, partition_name)
         if pad_sequences:
             instances, lengths = self._pad_batch(instances)
