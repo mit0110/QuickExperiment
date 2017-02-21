@@ -9,7 +9,8 @@ class SimpleDatasetTest(unittest.TestCase):
 
     def setUp(self):
         num_examples = 10
-        self.matrix = numpy.random.random((num_examples, 3))
+        self.matrix = numpy.random.random((num_examples, 3)).astype(
+            numpy.float32)
         self.labels = (
             numpy.random.random((num_examples,)) * 10).astype(numpy.int16)
         self.indices = {
@@ -18,6 +19,11 @@ class SimpleDatasetTest(unittest.TestCase):
         self.dataset = dataset.SimpleDataset()
         self.dataset.create_from_matrixes(self.matrix, indices=self.indices,
                                           labels=self.labels)
+
+    def test_types(self):
+        """Test if instances_type and labels_type are correct."""
+        self.assertEqual(numpy.float32, self.dataset.instances_type)
+        self.assertEqual(numpy.int16, self.dataset.labels_type)
 
     def test_construct_from_matrixes(self):
         self.assertEqual(self.dataset.indices, self.indices)
@@ -44,7 +50,8 @@ class SimpleSampledDatasetTest(unittest.TestCase):
     """Test for class SimpleSampledDataset"""
     def setUp(self):
         num_examples = 10
-        self.matrix = numpy.random.random((num_examples * 3, 3))
+        self.matrix = numpy.random.random((num_examples * 3, 3)).astype(
+            numpy.float32)
         self.labels = (
             numpy.random.random((num_examples,)) * 10).astype(numpy.int16)
         # We ensure each label is at least three times
@@ -53,13 +60,19 @@ class SimpleSampledDatasetTest(unittest.TestCase):
             'train': 0.5, 'test': 0.25, 'val': 0.1
         }
         self.dataset = dataset.SimpleSampledDataset()
+        self.samples = 5
+        self.dataset.create_samples(self.matrix, self.labels, self.samples,
+                                    self.partition_sizes)
+
+    def test_types(self):
+        """Test if instances_type and labels_type are correct."""
+        self.dataset.set_current_sample(0)
+        self.assertEqual(numpy.float32, self.dataset.instances_type)
+        self.assertEqual(numpy.int16, self.dataset.labels_type)
 
     def test_sample_sizes(self):
         """Test samples have correct proportion"""
-        samples = 5
-        self.dataset.create_samples(self.matrix, self.labels, samples,
-                                    self.partition_sizes)
-        for sample in range(samples):
+        for sample in range(self.samples):
             self.dataset.set_current_sample(sample)
             for partition, proportion in self.partition_sizes.iteritems():
                 self.assertEqual(int(proportion * self.matrix.shape[0]),
@@ -67,8 +80,6 @@ class SimpleSampledDatasetTest(unittest.TestCase):
 
     def test_unlimited_batches(self):
         """Tests the dataset can produce unlimited batches."""
-        self.dataset.create_samples(self.matrix, self.labels, 5,
-                                    self.partition_sizes)
         self.dataset.set_current_sample(0)
         for i in range(10):
             batch, labels = self.dataset.next_batch(batch_size=2,
@@ -103,21 +114,23 @@ class SequenceDatasetTest(unittest.TestCase):
             'train': 0.5, 'test': 0.25, 'val': 0.1
         }
         self.dataset = dataset.SequenceDataset()
-
-    def test_ordered_instances(self):
-        """Test samples have correct proportion"""
         self.dataset.create_samples(self.matrix, self.labels, 1,
                                     self.partition_sizes, sort_by_length=True)
         self.dataset.set_current_sample(0)
+
+    def test_types(self):
+        """Test if instances_type and labels_type are correct."""
+        self.assertIn(self.dataset.instances_type, [numpy.int32, numpy.int64])
+        self.assertEqual(numpy.int16, self.dataset.labels_type)
+
+    def test_ordered_instances(self):
+        """Test samples have correct proportion"""
         instances = self.dataset._instances
         self.assertTrue(all(len(a) <= len(b) for a, b in
                             zip(instances[:-1], instances[1:])))
 
     def test_padded_batches(self):
         """Tests the dataset produces batches of padded sentences."""
-        self.dataset.create_samples(self.matrix, self.labels, 1,
-                                    self.partition_sizes, sort_by_length=True)
-        self.dataset.set_current_sample(0)
         for i in range(3):
             batch, labels, lengths = self.dataset.next_batch(
                 batch_size=2, partition_name='train')

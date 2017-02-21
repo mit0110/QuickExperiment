@@ -19,12 +19,12 @@ class BaseDataset(object):
     information, partitions are represented as a matrix, a label vector and the
     set of indices for each partition.
 
-    Args:
-
     Attributes:
         datasets (dict): a map from partition names to Partitions.
         indices (dict): a map from partition names to their indices.
         feature_vector_size (int): the size of each instance.
+        instances_type: type of elements in each instances.
+        labels_type: type of elements in labels.
     """
 
     def __init__(self):
@@ -156,6 +156,14 @@ class SimpleDataset(BaseDataset):
     @property
     def feature_vector_size(self):
         return self.datasets.values()[0].instances.shape[1]
+
+    @property
+    def instances_type(self):
+        return self.datasets.values()[0].instances.dtype
+
+    @property
+    def labels_type(self):
+        return self.datasets.values()[0].labels.dtype
 
     def classes_num(self, partition_name='train'):
         """Returns the number of unique classes in a partition of the dataset.
@@ -486,6 +494,18 @@ class SequenceDataset(SimpleSampledDataset):
             return len(first_sequence[0])
         return 1
 
+    @property
+    def instances_type(self):
+        first_sequence = self.datasets.values()[0].instances[0]
+        if isinstance(first_sequence[0], numpy.ndarray):
+            return first_sequence[0].dtype
+        if isinstance(first_sequence[0], list):
+            return type(first_sequence[0])
+        return int
+
+    @property
+    def labels_type(self):
+        return self.datasets.values()[0].labels.dtype
 
     def create_samples(self, instances, labels, samples_num, partition_sizes,
                        use_numeric_labels=False, sort_by_length=False):
@@ -510,7 +530,6 @@ class SequenceDataset(SimpleSampledDataset):
             sorted_indices = numpy.argsort(lengths)
             self._instances = self._instances[sorted_indices]
             self._labels = self._labels[sorted_indices]
-
 
     def _pad_batch(self, batch_instances):
         """Pad sequences with 0 to the length of the longer sequence in the

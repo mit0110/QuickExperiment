@@ -16,8 +16,15 @@ class LSTMModel(BaseModel):
         dataset (:obj: BaseDataset): An instance of BaseDataset (or
             subclass). The dataset MUST have a partition called validation.
         hidden_layer_size (int): The size of the hidden layer of the network.
-        max_num_steps (int): the maximum number of steps to use during the BPTT.
-                The gradients are going to be clipped at max_num_steps.
+        batch_size (int): The maximum size of elements to input into the model.
+            It will also be used to generate batches from the dataset.
+        training_epochs (int): Number of training iterations
+        logs_dirname (string): Name of directory to save internal information
+            for tensorboard visualization.
+        log_valus (bool): If True, log the progress of the training in console.
+        max_num_steps (int): the maximum number of steps to use during the
+            Back Propagation Through Time optimization. The gradients are
+            going to be clipped at max_num_steps.
         **kwargs: Additional arguments.
     """
 
@@ -32,47 +39,42 @@ class LSTMModel(BaseModel):
         self.learning_rate = 0.01
         self.batch_size = batch_size
         self.training_epochs = training_epochs
+
         if name is None:
             self.logs_dirname = logs_dirname
         else:
             self.logs_dirname = os.path.join(logs_dirname, name)
-        self.log_values = log_values
-
         utils.safe_mkdir(self.logs_dirname)
+
+        self.log_values = log_values
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
         # Placeholder for the inputs in a given iteration.
-        self.sequences_placeholder = []
-        # self.x_placeholder is a list of placeholders. The i-th element
-        # will contain a tensor of size (batch_size, input_width) with the
-        # step number i of each sequence in the batch.
-        for step in range(self.max_num_steps):
-            self.sequences_placeholder.append(tf.placeholder(
-                tf.float32, [None, self.dataset.feature_vector_size],
-                name='input{}_placeholder'.format(step)))
+        self.sequences_placeholder = tf.placeholder(
+            self.dataset.instances_type,
+            (None, self.max_num_steps, self.dataset.feature_vector_size),
+            name='sequences_placeholder')
+
+        self.lengths_placeholder = tf.placeholder(
+            tf.int32, (None, ), name='lengths_placeholder')
 
         self.labels_placeholder = tf.placeholder(
-            tf.float32, [self.max_num_steps, None],
+            self.dataset.labels_type, (None, ),
             name='labels_placeholder')
 
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
-        layers = [self.instances_placeholder]
-        for layer_index, size_current in enumerate(self.hidden_layers_sizes):
-            layer_name = 'hidden_layer_{}'.format(layer_index)
-            with tf.variable_scope(layer_name) as scope:
-                # Create the layer
-                layer = tf.contrib.layers.fully_connected(
-                    inputs=layers[-1], num_outputs=size_current,
-                    activation_fn=tf.sigmoid,
-                    weights_initializer=tf.truncated_normal_initializer(),
-                    weights_regularizer=tf.contrib.layers.l2_regularizer,
-                    biases_initializer=tf.zeros_initializer(),
-                    biases_regularizer=tf.contrib.layers.l2_regularizer,
-                    reuse=True, trainable=True, scope=scope
-                )
-                layers.append(layer)
+        # The recurrent layer
+        lstm_cell = tf.contrib.rnn.BasicLSTMCell(self.hidden_layer_size)
+
+        with tf.name_scope('recurrent_layer') as scope:
+            # outputs is a Tensor shaped [batch_size, max_time,
+            # cell.output_size].
+            # State is a Tensor shaped [batch_size, cell.state_size]
+            outputs, state = tf.nn.dynamic_rnn(
+                lstm_cell, inputs=self.sequences_placeholder,
+                sequence_length=self.sequences_placeholder, scope=scope)
 
         # The last layer is for the classifier
         with tf.name_scope('softmax_layer') as scope:

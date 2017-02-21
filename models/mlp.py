@@ -15,8 +15,14 @@ class MLPModel(BaseModel):
     Args:
         dataset (:obj: BaseDataset): An instance of BaseDataset (or
             subclass). The dataset MUST have a partition called validation.
-        layers (:obj: iterable, optional): An iterable with the size of the
-            hidden layers of the network.
+        hidden_layers (:obj: iterable, optional): An iterable with the size of
+            the hidden layers of the network.
+        batch_size (int): The maximum size of elements to input into the model.
+            It will also be used to generate batches from the dataset.
+        training_epochs (int): Number of training iterations
+        logs_dirname (string): Name of directory to save internal information
+            for tensorboard visualization.
+        log_valus (bool): If True, log the progress of the training in console.
         **kwargs: Additional arguments.
     """
 
