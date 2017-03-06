@@ -476,7 +476,6 @@ class SimpleSampledDataset(BaseSampledDataset, SimpleDataset):
         return numpy.unique(self._labels).shape[0]
 
 
-
 class SequenceDataset(SimpleSampledDataset):
     """Representation of a dataset where instances are sequences."""
 
@@ -535,7 +534,7 @@ class SequenceDataset(SimpleSampledDataset):
             self._instances = self._instances[sorted_indices]
             self._labels = self._labels[sorted_indices]
 
-    def _pad_batch(self, batch_instances):
+    def _pad_batch(self, batch_instances, max_sequence_length=None):
         """Pad sequences with 0 to the length of the longer sequence in the
         batch.
 
@@ -547,15 +546,21 @@ class SequenceDataset(SimpleSampledDataset):
             A tuple with the padded batch and the original lengths.
         """
         lengths = self._get_sequence_lengths(batch_instances)
-        max_length = lengths.max()
+        if max_sequence_length is not None:
+            max_length = min(lengths.max(), max_sequence_length)
+        else:
+            max_length = lengths.max()
         padded_batch = numpy.zeros(
             (batch_instances.shape[0], max_length, self.feature_vector_size))
         for index, sequence in enumerate(batch_instances):
-            padded_batch[index,:lengths[index]] = sequence
+            if lengths[index] <= max_length:
+                padded_batch[index,:lengths[index]] = sequence
+            else:
+                padded_batch[index,:] = sequence[lengths[index]-max_length:]
         return padded_batch, lengths
 
     def next_batch(self, batch_size, partition_name='train',
-                   pad_sequences=True):
+                   pad_sequences=True, max_sequence_length=None):
         """Generates batches of instances and labels from a partition.
 
         If the size of the partition is exceeded, the partition and the labels
@@ -567,16 +572,21 @@ class SequenceDataset(SimpleSampledDataset):
                 batches from.
             pad_sequences (bool): If True, all sequences are padded to the
                 length of the longer sequence.
+            max_sequence_length (int, optional): The maximum size of sequences.
+
+        Returns:
+            A tuple (instances, labels, lengths) of batch_size.
         """
         instances, labels = super(SequenceDataset, self).next_batch(
             batch_size, partition_name)
         if pad_sequences:
-            instances, lengths = self._pad_batch(instances)
+            instances, lengths = self._pad_batch(instances, max_sequence_length)
         else:
             lengths = self._get_sequence_lengths(instances)
         return instances, labels, lengths
 
-    def traverse_dataset(self, batch_size, partition_name, pad_sequences=True):
+    def traverse_dataset(self, batch_size, partition_name,
+                         pad_sequences=True, max_sequence_length=None):
         """Generates batches of instances and labels from a partition.
 
         The iterator ends when the dataset has been entirely returned.
@@ -587,15 +597,17 @@ class SequenceDataset(SimpleSampledDataset):
                 batches from.
             pad_sequences (bool): If True, all sequences are padded to the
                 length of the longer sequence.
+            max_sequence_length (int, optional): The maximum size of sequences.
 
         Yields:
             A tuple (instances, labels, lengths) of batch_size, except in the
             last iteration where the size can be smaller.
         """
-        instances, labels = super(SequenceDataset, self).traverse_dataset(
-            batch_size, partition_name)
-        if pad_sequences:
-            instances, lengths = self._pad_batch(instances)
-        else:
-            lengths = self._get_sequence_lengths(instances)
-        return instances, labels, lengths
+        for instances, labels in super(SequenceDataset, self).traverse_dataset(
+                batch_size, partition_name):
+            if pad_sequences:
+                instances, lengths = self._pad_batch(instances, max_sequence_length)
+            else:
+                lengths = self._get_sequence_lengths(instances)
+            yield instances, labels, lengths
+

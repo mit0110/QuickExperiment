@@ -1,7 +1,9 @@
 import logging
 import os
+
 import numpy
 import tensorflow as tf
+tf.logging.set_verbosity(tf.logging.ERROR)
 
 import utils
 from models.mlp import MLPModel
@@ -22,7 +24,7 @@ class LSTMModel(MLPModel):
             It will also be used to generate batches from the dataset.
         training_epochs (int): Number of training iterations
         logs_dirname (string): Name of directory to save internal information
-            for tensorboard visualization.
+            for tensorboard visualization. If None, no records will be saved
         log_values (bool): If True, log the progress of the training in console.
         max_num_steps (int): the maximum number of steps to use during the
             Back Propagation Through Time optimization. The gradients are
@@ -33,29 +35,19 @@ class LSTMModel(MLPModel):
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
                  training_epochs=1000, logs_dirname='.', log_values=True,
                  max_num_steps=30, **kwargs):
-        super(LSTMModel, self).__init__(dataset, **kwargs)
+        super(LSTMModel, self).__init__(
+            dataset, batch_size=batch_size, training_epochs=training_epochs,
+            logs_dirname=logs_dirname, name=name, log_values=log_values,
+            **kwargs)
         self.hidden_layer_size = hidden_layer_size
         self.max_num_steps = max_num_steps
-
-        # Variable names to save the model.
-        self.learning_rate = 0.01
-        self.batch_size = batch_size
-        self.training_epochs = training_epochs
-
-        if name is None:
-            self.logs_dirname = logs_dirname
-        else:
-            self.logs_dirname = os.path.join(logs_dirname, name)
-        utils.safe_mkdir(self.logs_dirname)
-
-        self.log_values = log_values
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
         # Placeholder for the inputs in a given iteration.
         self.instances_placeholder = tf.placeholder(
-            self.dataset.instances_type,
-            (None, self.max_num_steps, self.dataset.feature_vector_size),
+            tf.float32,
+            (None, None, self.dataset.feature_vector_size),
             name='sequences_placeholder')
 
         self.lengths_placeholder = tf.placeholder(
@@ -64,14 +56,31 @@ class LSTMModel(MLPModel):
         self.labels_placeholder = tf.placeholder(
             self.dataset.labels_type, (None, ),
             name='labels_placeholder')
+    
+    def reshape_output(self, outputs):
+        """Transforms the network hidden layer output into the input for the 
+        softmax layer.
+
+        Args:
+            outputs (Tensor): shape [batch_size, max_time, cell.output_size].
+
+        Returns:
+            A tensor with shape [batch_size, cell.output_size].
+        """
+        output_shape = tf.shape(outputs)
+        last_output = tf.slice(
+            outputs,
+            begin=[0, output_shape[1] - 1, 0],
+            size=[output_shape[0], 1, self.hidden_layer_size])
+        last_output = tf.reshape(
+            last_output, [output_shape[0], 1, self.hidden_layer_size])
+        return tf.squeeze(last_output, [1])
 
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
         # The recurrent layer
         lstm_cell = tf.contrib.rnn.LSTMCell(self.hidden_layer_size)
 
-        print lstm_cell
-        print self.instances_placeholder
         with tf.name_scope('recurrent_layer') as scope:
             # outputs is a Tensor shaped [batch_size, max_time,
             # cell.output_size].
@@ -81,14 +90,10 @@ class LSTMModel(MLPModel):
                 sequence_length=self.lengths_placeholder, scope=scope,
                 initial_state=lstm_cell.zero_state(
                     tf.shape(self.instances_placeholder)[0], tf.float32))
-            output_shape = tf.shape(outputs)
+            last_output = self.reshape_output(outputs)
             # We take only the last predicted output
-            last_output = tf.slice(
-                outputs,
-                begin=[0, output_shape[1] - 1, 0],
-                size=[output_shape[0], 1, output_shape[2]])
-            tf.summary.histogram('hidden_state', state)
-
+            if self.logs_dirname is not None:
+                tf.summary.histogram('hidden_state', state)
         # The last layer is for the classifier
         with tf.name_scope('softmax_layer') as scope:
             logits = tf.contrib.layers.fully_connected(
@@ -100,7 +105,8 @@ class LSTMModel(MLPModel):
                 biases_regularizer=tf.contrib.layers.l2_regularizer,
                 reuse=True, trainable=True, scope=scope
             )
-            tf.summary.histogram('logits', logits)
+            if self.logs_dirname is not None:
+                tf.summary.histogram('logits', logits)
 
         return logits
 
@@ -115,9 +121,10 @@ class LSTMModel(MLPModel):
             feed_dict: The feed dictionary mapping from placeholders to values.
         """
         instances, labels, lengths = self.dataset.next_batch(
-            self.batch_size, partition_name, pad_sequences=True)
+            self.batch_size, partition_name, pad_sequences=True,
+            max_sequence_length=self.max_num_steps)
         return {
-            self.instances_placeholder: instances,
+            self.instances_placeholder: instances.astype(numpy.float32),
             self.labels_placeholder: labels,
             self.lengths_placeholder: lengths
         }

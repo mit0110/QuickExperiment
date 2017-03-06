@@ -21,7 +21,7 @@ class MLPModel(BaseModel):
             It will also be used to generate batches from the dataset.
         training_epochs (int): Number of training iterations
         logs_dirname (string): Name of directory to save internal information
-            for tensorboard visualization.
+            for tensorboard visualization. If None, no records will be saved.
         log_valus (bool): If True, log the progress of the training in console.
         **kwargs: Additional arguments.
     """
@@ -36,13 +36,15 @@ class MLPModel(BaseModel):
         self.learning_rate = 0.01
         self.batch_size = batch_size
         self.training_epochs = training_epochs
-        if name is None:
-            self.logs_dirname = logs_dirname
-        else:
-            self.logs_dirname = os.path.join(logs_dirname, name)
+        self.logs_dirname = None
+        if logs_dirname is not None:
+            if name is None:
+                self.logs_dirname = logs_dirname
+            else:
+                self.logs_dirname = os.path.join(logs_dirname, name)
+            utils.safe_mkdir(self.logs_dirname)
         self.log_values = log_values
 
-        utils.safe_mkdir(self.logs_dirname)
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors.
@@ -88,7 +90,8 @@ class MLPModel(BaseModel):
                 biases_regularizer=tf.contrib.layers.l2_regularizer,
                 reuse=True, trainable=True, scope=scope
             )
-            tf.summary.histogram('logits', logits)
+            if self.logs_dirname is not None:
+                tf.summary.histogram('logits', logits)
 
         return logits
 
@@ -107,12 +110,12 @@ class MLPModel(BaseModel):
         return tf.reduce_mean(cross_entropy, name='cross_entropy_mean_loss')
 
     def _build_train_operation(self, loss):
-        tf.summary.scalar('loss', loss)
+        if self.logs_dirname is not None:
+            tf.summary.scalar('loss', loss)
         optimizer = tf.train.AdamOptimizer(self.learning_rate)
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         return optimizer.minimize(loss, global_step=global_step)
-
 
     def _fill_feed_dict(self, partition_name='train'):
         """Fills the feed_dict for training the given step.
@@ -178,8 +181,9 @@ class MLPModel(BaseModel):
             correct_predictions = self._build_evaluation(logits)
             self.predictions = self._build_predictions(logits)
 
-            # Summarize metrics for TensorBoard
-            summary = tf.summary.merge_all()
+            if self.logs_dirname is not None:
+                # Summarize metrics for TensorBoard
+                summary = tf.summary.merge_all()
 
             # Create a saver for writing training checkpoints.
             self.saver = tf.train.Saver()
@@ -187,9 +191,10 @@ class MLPModel(BaseModel):
             # Create a session for running Ops on the Graph.
             init = tf.global_variables_initializer()
             self.sess = tf.Session()
-            # Instantiate a SummaryWriter to output summaries and the Graph.
-            summary_writer = tf.summary.FileWriter(self.logs_dirname,
-                                                   self.sess.graph)
+            if self.logs_dirname is not None:
+                # Instantiate a SummaryWriter to output summaries and the Graph.
+                summary_writer = tf.summary.FileWriter(self.logs_dirname,
+                                                       self.sess.graph)
             self.sess.run(init)
 
             # Run the training loop
@@ -200,8 +205,8 @@ class MLPModel(BaseModel):
                 # activations from the train_op (which is discarded) and
                 # the loss Op.
                 _, loss_value = self.sess.run([train_op, loss],
-                                         feed_dict=feed_dict)
-                if epoch % 10 is 0:
+                                              feed_dict=feed_dict)
+                if self.logs_dirname is not None and epoch % 10 is 0:
                     summary_str = self.sess.run(summary, feed_dict=feed_dict)
                     summary_writer.add_summary(summary_str, epoch)
                     summary_writer.flush()
@@ -211,7 +216,8 @@ class MLPModel(BaseModel):
                         epoch, loss_value
                     ))
                     accuracy = self.evaluate_validation(correct_predictions)
-                    tf.summary.scalar('accuracy', accuracy)
+                    if self.logs_dirname is not None:
+                        tf.summary.scalar('accuracy', accuracy)
                     logging.info('Validation accuracy {}'.format(accuracy))
 
         if close_session:
