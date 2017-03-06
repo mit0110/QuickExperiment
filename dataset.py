@@ -2,7 +2,7 @@ import logging
 import os
 
 import numpy
-
+import scipy
 import utils
 
 from collections import namedtuple
@@ -485,7 +485,7 @@ class SequenceDataset(SimpleSampledDataset):
 
     @staticmethod
     def _get_sequence_lengths(sequence):
-        vectorized_function = numpy.vectorize(lambda x: len(x))
+        vectorized_function = numpy.vectorize(lambda x: x.shape[0])
         return vectorized_function(sequence)
 
     @property
@@ -493,6 +493,8 @@ class SequenceDataset(SimpleSampledDataset):
         first_sequence = self.datasets.values()[0].instances[0]
         if isinstance(first_sequence[0], numpy.ndarray):
             return first_sequence[0].shape[0]
+        if isinstance(first_sequence, scipy.sparse.csr_matrix):
+            return first_sequence.shape[1]
         if isinstance(first_sequence[0], list):
             return len(first_sequence[0])
         return 1
@@ -579,6 +581,9 @@ class SequenceDataset(SimpleSampledDataset):
         """
         instances, labels = super(SequenceDataset, self).next_batch(
             batch_size, partition_name)
+        # Convert instances to dense if they are sparse
+        if isinstance(instances[0], scipy.sparse.csr_matrix):
+            instances = numpy.array([instance.todense() for instance in instances])
         if pad_sequences:
             instances, lengths = self._pad_batch(instances, max_sequence_length)
         else:
@@ -605,6 +610,10 @@ class SequenceDataset(SimpleSampledDataset):
         """
         for instances, labels in super(SequenceDataset, self).traverse_dataset(
                 batch_size, partition_name):
+            # Convert instances to dense if they are sparse                          
+            if isinstance(instances[0], scipy.sparse.csr_matrix):                    
+                 instances = numpy.array([instance.todense()
+                                          for instance in instances])
             if pad_sequences:
                 instances, lengths = self._pad_batch(instances, max_sequence_length)
             else:

@@ -79,7 +79,9 @@ class LSTMModel(MLPModel):
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
         # The recurrent layer
-        lstm_cell = tf.contrib.rnn.LSTMCell(self.hidden_layer_size)
+        lstm_cell = tf.contrib.rnn.GRUCell(
+            self.hidden_layer_size)
+#            initializer=tf.random_uniform_initializer(-1, 1))
 
         with tf.name_scope('recurrent_layer') as scope:
             # outputs is a Tensor shaped [batch_size, max_time,
@@ -94,6 +96,7 @@ class LSTMModel(MLPModel):
             # We take only the last predicted output
             if self.logs_dirname is not None:
                 tf.summary.histogram('hidden_state', state)
+                tf.summary.histogram('outputs', outputs)
         # The last layer is for the classifier
         with tf.name_scope('softmax_layer') as scope:
             logits = tf.contrib.layers.fully_connected(
