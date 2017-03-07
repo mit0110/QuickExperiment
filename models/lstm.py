@@ -113,6 +113,30 @@ class LSTMModel(MLPModel):
 
         return logits
 
+    def log_gradients(self, gradients):
+        if self.logs_dirname is None:
+            return
+        # Add histograms for variables, gradients and gradient norms.
+        for gradient, variable in gradients:
+            if isinstance(gradient, tf.IndexedSlices):
+                grad_values = gradient.values
+            else:
+                grad_values = gradient
+            tf.summary.histogram(variable.name, variable)
+            tf.summary.histogram(variable.name + "gradients",
+                                 grad_values)
+            tf.summary.histogram(variable.name + "gradient_norm",
+                                 tf.global_norm([grad_values]))
+
+    def _build_train_operation(self, loss):
+        tf.summary.scalar('loss', loss)
+        optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+        # Create a variable to track the global step.
+        global_step = tf.Variable(0, name='global_step', trainable=False)
+        gradients = optimizer.compute_gradients(loss)
+        self.log_gradients(gradients)
+        return optimizer.apply_gradients(gradients, global_step=global_step)
+
     def _fill_feed_dict(self, partition_name='train'):
         """Fills the feed_dict for training the given step.
 

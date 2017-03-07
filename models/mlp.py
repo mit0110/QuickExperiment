@@ -28,12 +28,12 @@ class MLPModel(BaseModel):
 
     def __init__(self, dataset, name=None, hidden_layers=[], batch_size=None,
                  training_epochs=1000, logs_dirname='.', log_values=True,
-                 **kwargs):
+                 learning_rate=0.001, **kwargs):
         super(MLPModel, self).__init__(dataset, **kwargs)
         self.hidden_layers_sizes = hidden_layers
 
         # Variable names to save the model.
-        self.learning_rate = 0.01
+        self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.training_epochs = training_epochs
         self.logs_dirname = None
@@ -112,7 +112,7 @@ class MLPModel(BaseModel):
     def _build_train_operation(self, loss):
         if self.logs_dirname is not None:
             tf.summary.scalar('loss', loss)
-        optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         return optimizer.minimize(loss, global_step=global_step)
