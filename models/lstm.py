@@ -25,7 +25,8 @@ class LSTMModel(MLPModel):
         training_epochs (int): Number of training iterations
         logs_dirname (string): Name of directory to save internal information
             for tensorboard visualization. If None, no records will be saved
-        log_values (bool): If True, log the progress of the training in console.
+        log_values (int): Number of steps to wait before logging the progress of 
+            the training in console. If 0, no logs will be generated.
         max_num_steps (int): the maximum number of steps to use during the
             Back Propagation Through Time optimization. The gradients are
             going to be clipped at max_num_steps.
@@ -79,9 +80,8 @@ class LSTMModel(MLPModel):
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
         # The recurrent layer
-        lstm_cell = tf.contrib.rnn.GRUCell(
-            self.hidden_layer_size)
-#            initializer=tf.random_uniform_initializer(-1, 1))
+        lstm_cell = tf.contrib.rnn.BasicLSTMCell(
+            self.hidden_layer_size, forget_bias=1.0)
 
         with tf.name_scope('recurrent_layer') as scope:
             # outputs is a Tensor shaped [batch_size, max_time,
@@ -101,7 +101,7 @@ class LSTMModel(MLPModel):
         with tf.name_scope('softmax_layer') as scope:
             logits = tf.contrib.layers.fully_connected(
                 inputs=last_output, num_outputs=self.dataset.classes_num(),
-                activation_fn=tf.sigmoid,
+                activation_fn=None,  # we keep a linear activation
                 weights_initializer=tf.contrib.layers.xavier_initializer(),
                 weights_regularizer=tf.contrib.layers.l2_regularizer,
                 biases_initializer=tf.zeros_initializer(),

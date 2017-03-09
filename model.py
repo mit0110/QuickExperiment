@@ -50,17 +50,20 @@ class BaseModel(object):
 class SkleanrModel(BaseModel):
     """Wrapper around scikit-learn models compatible with BaseModel API."""
 
-    def __init__(self, dataset, model_class, sklearn_model_arguments={}):
+    def __init__(self, dataset, model_class, sklearn_model_arguments={},
+                 name=None):
         super(SkleanrModel, self).__init__(dataset)
         self.model = model_class(**sklearn_model_arguments)
+        self.name = name
 
     def fit(self, partition_name):
         self.model.fit(self.dataset.datasets[partition_name].instances,
                        self.dataset.datasets[partition_name].labels)
 
     def predict(self, partition_name):
-        return self.model.predict(
-            self.dataset.datasets[partition_name].instances)
+        return (
+            self.model.predict(self.dataset.datasets[partition_name].instances),
+            self.dataset.datasets[partition_name].labels)
 
     def save_to_file(self, directory_name, name=None):
         if name is not None:

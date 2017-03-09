@@ -22,7 +22,8 @@ class MLPModel(BaseModel):
         training_epochs (int): Number of training iterations
         logs_dirname (string): Name of directory to save internal information
             for tensorboard visualization. If None, no records will be saved.
-        log_valus (bool): If True, log the progress of the training in console.
+        log_values (int): Number of steps to wait before logging the progress of
+            the training in console. If 0, no logs will be generated.
         **kwargs: Additional arguments.
     """
 
@@ -44,7 +45,6 @@ class MLPModel(BaseModel):
                 self.logs_dirname = os.path.join(logs_dirname, name)
             utils.safe_mkdir(self.logs_dirname)
         self.log_values = log_values
-
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors.
@@ -211,9 +211,10 @@ class MLPModel(BaseModel):
                     summary_writer.add_summary(summary_str, epoch)
                     summary_writer.flush()
 
-                if self.log_values and epoch % 100 is 0:
+                if (epoch is not 0 and self.log_values is not 0
+                        and epoch % self.log_values is 0):
                     logging.info('Classifier loss at step {}: {}'.format(
-                        epoch, loss_value
+                        epoch * self.batch_size, loss_value
                     ))
                     accuracy = self.evaluate_validation(correct_predictions)
                     if self.logs_dirname is not None:
@@ -237,6 +238,7 @@ class MLPModel(BaseModel):
 
     def predict(self, partition_name):
         predictions = []
+        true = []
         with self.graph.as_default():
             for instance_batch, labels_batch in self.dataset.traverse_dataset(
                     self.batch_size, partition_name):
@@ -246,4 +248,5 @@ class MLPModel(BaseModel):
                 }
                 predictions.extend(self.sess.run(self.predictions,
                                                  feed_dict=feed_dict))
-        return numpy.array(predictions)
+                true.append(labels_batch)
+        return numpy.array(predictions), numpy.concatenate(true)

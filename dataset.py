@@ -128,6 +128,17 @@ class BaseDataset(object):
         """
         raise NotImplementedError
 
+    def get_labels(self, partition_name='train'):
+        """Returns the labels of the partition
+        Args:
+            partition_name (str): the name of the partition to get the
+                labels from.
+
+        Returns:
+            An iterable with labels.
+        """
+        return self.datasets[partition_name].labels
+
 
 class SimpleDataset(BaseDataset):
     """Simple dataset with 2D numpy array as instances.
@@ -204,7 +215,6 @@ class SimpleDataset(BaseDataset):
             partition_labels = labels[index] if labels is not None else None
             self.datasets[partition] = Partition(instances=matrix[index],
                                                  labels=partition_labels)
-
 
     def load_from_files(self, directory_name, instances_filename=None,
                         labels_filename=None, name=None):
