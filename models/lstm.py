@@ -172,6 +172,7 @@ class LSTMModel(MLPModel):
 
     def predict(self, partition_name):
         predictions = []
+        true = []
         with self.graph.as_default():
             for instances, labels, lengths in self.dataset.traverse_dataset(
                     self.batch_size, partition_name):
@@ -182,4 +183,5 @@ class LSTMModel(MLPModel):
                 }
                 predictions.extend(self.sess.run(self.predictions,
                                                  feed_dict=feed_dict))
-        return numpy.array(predictions)
+                true.append(labels)
+        return numpy.array(predictions), numpy.concatenate(true)
