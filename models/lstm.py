@@ -24,8 +24,8 @@ class LSTMModel(MLPModel):
         training_epochs (int): Number of training iterations
         logs_dirname (string): Name of directory to save internal information
             for tensorboard visualization. If None, no records will be saved
-        log_values (int): Number of steps to wait before logging the progress of 
-            the training in console. If 0, no logs will be generated.
+        log_values (int): Number of steps to wait before logging the progress
+            of the training in console. If 0, no logs will be generated.
         max_num_steps (int): the maximum number of steps to use during the
             Back Propagation Through Time optimization. The gradients are
             going to be clipped at max_num_steps.
@@ -56,9 +56,9 @@ class LSTMModel(MLPModel):
         self.labels_placeholder = tf.placeholder(
             self.dataset.labels_type, (None, ),
             name='labels_placeholder')
-    
+
     def reshape_output(self, outputs, lengths):
-        """Transforms the network hidden layer output into the input for the 
+        """Transforms the network hidden layer output into the input for the
         softmax layer.
 
         Args:
@@ -191,6 +191,13 @@ class LSTMModel(MLPModel):
                                                  feed_dict=feed_dict))
                 true.append(feed_dict[self.labels_placeholder])
         return numpy.array(predictions), numpy.concatenate(true)
+
+    def evaluate_validation(self, correct_predictions):
+        true_count = 0
+        for feed_dict in self._fill_feed_dict_traversing('validation'):
+            true_count += self.sess.run(correct_predictions,
+                                        feed_dict=feed_dict)
+        return true_count / float(self.dataset.num_examples('validation'))
 
 
 class SeqPredictionModel(LSTMModel):

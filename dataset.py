@@ -669,14 +669,16 @@ class UnlabeledSequenceDataset(SequenceDataset):
         """Returns the correct labels for self._instances"""
         labels = []
         for sequence in self._instances:
-            sequence_labels = numpy.argmax(sequence, axis=-1)[1:]
+            sequence_labels = sequence.argmax(axis=-1)[1:]
             # Add the EOS vector
+            if sequence_labels.ndim > 1:
+                sequence_labels = numpy.squeeze(numpy.asarray(sequence_labels))
             sequence_labels = numpy.append(sequence_labels, [self.EOS_symbol])
             labels.append(sequence_labels)
         return numpy.array(labels)
 
     def _pad_batch(self, batch_instances, batch_labels,
-                   max_sequence_length=None,):
+                   max_sequence_length=None):
         """Pad sequences with 0 to the length of the longer sequence in the
         batch.
 
@@ -701,10 +703,9 @@ class UnlabeledSequenceDataset(SequenceDataset):
                 padded_batch[index, :lengths[index]] = sequence
                 padded_labels[index, :lengths[index]] = batch_labels[index]
             else:
-                padded_batch[index, :] = sequence[
-                    lengths[index] - max_sequence_length:]
-                padded_labels[index, :lengths[index]] = batch_labels[
-                    lengths[index] - max_sequence_length:]
+                padded_batch[index, :] = sequence[-max_sequence_length:]
+                padded_labels[index, :] = batch_labels[
+                    index][-max_sequence_length:]
         return padded_batch, padded_labels, lengths
 
     def create_samples(self, instances, labels, samples_num, partition_sizes,

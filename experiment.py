@@ -54,7 +54,7 @@ class Experiment(object):
         predictions['true'] = self.dataset.get_labels(partition_name)
         predictions.to_csv(os.path.join(self.results_dirpath, filename))
 
-    def _get_metrics(self, predictions, partition_name):
+    def _get_metrics(self, predictions):
         """Returns personalized metrics using predictions."""
         metric_values = numpy.array(metrics.precision_recall_fscore_support(
             *predictions)).T
@@ -82,7 +82,7 @@ class Experiment(object):
                                     name=self.name)
         # Evaluate
         predictions = self.model.predict('test')
-        self._get_metrics(predictions, partition_name='test')
+        self._get_metrics(predictions)
 
         # Save the results
         if save_predictions:
@@ -109,7 +109,7 @@ class SampledExperiment(Experiment):
                                        columns=['prediction', 'true'])
         predictions.to_csv(os.path.join(self.results_dirpath, filename))
 
-    def _get_metrics(self, predictions, partition_name=None):
+    def _get_metrics(self, predictions):
         metric_values = []
         for true, prediction in predictions:
             metric_values.append(metrics.precision_recall_fscore_support(
