@@ -103,7 +103,7 @@ class SequenceDatasetTest(unittest.TestCase):
         # The matrix is an array of sequences of varying sizes. Each
         # sequence is an array of one element.
         self.matrix = [
-            [numpy.array([x, x+1]) for x in range(sequence_length)]
+            numpy.array([[x, x+1] for x in range(sequence_length)])
             for sequence_length in random.sample(k=num_examples,
                                                  population=range(3, 28))]
         self.matrix = numpy.array(self.matrix)
@@ -161,6 +161,50 @@ class SequenceDatasetTest(unittest.TestCase):
                 )
                 if length < batch.shape[1]:
                     self.assertAlmostEqual(0, row[length:].max(), places=3)
+
+
+class TestUnlabeledSequenceDataset(unittest.TestCase):
+
+    def _get_one_hot_encoding(self, x):
+        result = numpy.zeros(self.feature_size)
+        result[x] = 1
+        return result
+
+    def _get_random_sequence(self):
+        return numpy.array([
+            self._get_one_hot_encoding(x % self.feature_size)
+            for x in range(random.randint(3, self.max_num_steps))])
+
+    def setUp(self):
+        num_examples = 50
+        self.feature_size = 5
+        self.max_num_steps = 20
+        self.matrix = [self._get_random_sequence() for _ in range(num_examples)]
+        self.matrix = numpy.array(self.matrix)
+
+        self.partition_sizes = {
+            'train': 0.65, 'test': 0.25, 'validation': 0.1
+        }
+        self.dataset = dataset.UnlabeledSequenceDataset()
+        self.dataset.create_samples(self.matrix, None, 1,
+                                    self.partition_sizes, sort_by_length=True)
+        self.dataset.set_current_sample(0)
+
+    def test_get_labels(self):
+        labels = self.dataset._get_labels()
+        self.assertEqual(labels.shape[0],
+                         self.dataset._instances.shape[0])
+        for sequence, sequence_labels in zip(self.dataset._instances, labels):
+            # Same number of labels and elements in the sequence
+            self.assertEqual(sequence.shape[0], sequence_labels.shape[0])
+            self.assertEqual(1, sequence_labels.ndim)
+            for index in range(sequence.shape[0] - 1):
+                # The label must be equal to the index in the next one hot
+                # encoding.
+                self.assertEqual(numpy.argmax(sequence[index + 1]),
+                                 sequence_labels[index])
+            # Check last label
+            self.assertEqual(sequence_labels[-1], self.dataset.EOS_symbol)
 
 
 if __name__ == '__main__':

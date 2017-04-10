@@ -145,8 +145,6 @@ class MLPModel(BaseModel):
 
         Args:
             logits: Logits tensor, float - [batch_size, NUM_CLASSES].
-            labels: Labels tensor, int32 - [batch_size], with values in the
-                range [0, NUM_CLASSES).
 
         Returns:
             A scalar int32 tensor with the number of examples (out of batch_size)
@@ -165,7 +163,7 @@ class MLPModel(BaseModel):
             A int32 tensor with the predictions.
         """
         # Variable to store the predictions
-        return tf.argmax(tf.nn.softmax(logits), 1, name='batch_predictions')
+        return tf.argmax(logits, -1, name='batch_predictions')
 
     def fit(self, partition_name='train', close_session=False):
         self.graph = tf.Graph()
@@ -190,12 +188,13 @@ class MLPModel(BaseModel):
 
             # Create a session for running Ops on the Graph.
             init = tf.global_variables_initializer()
+            init_local = tf.local_variables_initializer()
             self.sess = tf.Session()
             if self.logs_dirname is not None:
                 # Instantiate a SummaryWriter to output summaries and the Graph.
                 summary_writer = tf.summary.FileWriter(self.logs_dirname,
                                                        self.sess.graph)
-            self.sess.run(init)
+            self.sess.run([init, init_local])
 
             # Run the training loop
             for epoch in range(self.training_epochs):
@@ -250,3 +249,4 @@ class MLPModel(BaseModel):
                                                  feed_dict=feed_dict))
                 true.append(labels_batch)
         return numpy.array(predictions), numpy.concatenate(true)
+
