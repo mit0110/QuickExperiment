@@ -203,9 +203,7 @@ class LSTMModel(MLPModel):
 class SeqPredictionModel(LSTMModel):
     """A Recurrent Neural Network model with LSTM cells.
 
-    Predicts the probability of the next element on the sequence. The dataset
-    must not have labels. The labels will be the next element of the sequence
-    or the end of sequence symbol.
+    Predicts the probability of the next element on the sequence.
     """
 
     def _build_inputs(self):
@@ -321,7 +319,7 @@ class SeqPredictionModel(LSTMModel):
         # Variable to store the predictions. The prediction for each element
         # is a vector with the most likely next
         # observed element in the sequence.
-        return tf.argmax(logits, -1, name='batch_predictions') 
+        return tf.argmax(logits, -1, name='batch_predictions')
 
     def _build_evaluation(self, logits):
         """Evaluate the quality of the logits at predicting the label.
@@ -333,8 +331,6 @@ class SeqPredictionModel(LSTMModel):
             A scalar int32 tensor with the number of examples (out of
             batch_size) that were predicted correctly.
         """
-        # self.labels is a binary vector. Then correct has the values of the
-        # predictions in the correct labels only
         predictions = self._build_predictions(logits)
         # predictions has shape [batch_size, max_num_steps]
         with tf.name_scope('evaluation_accuracy'):

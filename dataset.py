@@ -5,7 +5,7 @@ import numpy
 import utils
 
 from collections import namedtuple
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, coo_matrix
 
 
 Partition = namedtuple('Partition', ['instances', 'labels'])
@@ -505,10 +505,11 @@ class SequenceDataset(SimpleSampledDataset):
     @property
     def feature_vector_size(self):
         first_sequence = self._instances[0]
+        if isinstance(first_sequence, csr_matrix) or isinstance(
+                first_sequence, coo_matrix):
+            return first_sequence.shape[1]
         if isinstance(first_sequence[0], numpy.ndarray):
             return first_sequence[0].shape[0]
-        if isinstance(first_sequence, csr_matrix):
-            return first_sequence.shape[1]
         if isinstance(first_sequence[0], list):
             return len(first_sequence[0])
         return 1
@@ -637,7 +638,40 @@ class SequenceDataset(SimpleSampledDataset):
                 yield instances, labels, self._get_sequence_lengths(instances)
 
 
-class UnlabeledSequenceDataset(SequenceDataset):
+class LabeledSequenceDataset(SequenceDataset):
+    def _pad_batch(self, batch_instances, batch_labels,
+                   max_sequence_length=None):
+        """Pad sequences with 0 to the length of the longer sequence in the
+        batch.
+
+        Args:
+            batch_instances: a list of sequences of size batch_size. Each
+                sequence is a matrix.
+            batch_labels: a list of sequence labels of size batch_size. Each
+                label is a vector.
+            max_sequence_length (int): the maximum sequence lenght
+
+        Returns:
+            A tuple with the padded batch and the original lengths.
+        """
+        lengths = self._get_sequence_lengths(batch_instances)
+        padded_batch = numpy.zeros((batch_instances.shape[0],
+                                    max_sequence_length,
+                                    self.feature_vector_size))
+        padded_labels = numpy.zeros(
+            (batch_instances.shape[0], max_sequence_length))
+        for index, sequence in enumerate(batch_instances):
+            if lengths[index] <= max_sequence_length:
+                padded_batch[index, :lengths[index]] = sequence
+                padded_labels[index, :lengths[index]] = batch_labels[index]
+            else:
+                padded_batch[index, :] = sequence[-max_sequence_length:]
+                padded_labels[index, :] = batch_labels[
+                    index][-max_sequence_length:]
+        return padded_batch, padded_labels, lengths
+
+
+class UnlabeledSequenceDataset(LabeledSequenceDataset):
     """Sequenced dataset that does not use labels.
 
     Usually, these datasets will be used for prediction of the next item
@@ -677,36 +711,6 @@ class UnlabeledSequenceDataset(SequenceDataset):
             labels.append(sequence_labels)
         return numpy.array(labels)
 
-    def _pad_batch(self, batch_instances, batch_labels,
-                   max_sequence_length=None):
-        """Pad sequences with 0 to the length of the longer sequence in the
-        batch.
-
-        Args:
-            batch_instances: a list of sequences of size batch_size. Each
-                sequence is a matrix.
-            batch_labels: a list of sequence labels of size batch_size. Each
-                sequence is a vector.
-            max_sequence_length (int): the maximum sequence lenght
-
-        Returns:
-            A tuple with the padded batch and the original lengths.
-        """
-        lengths = self._get_sequence_lengths(batch_instances)
-        padded_batch = numpy.zeros((batch_instances.shape[0],
-                                    max_sequence_length,
-                                    self.feature_vector_size))
-        padded_labels = numpy.zeros(
-            (batch_instances.shape[0], max_sequence_length))
-        for index, sequence in enumerate(batch_instances):
-            if lengths[index] <= max_sequence_length:
-                padded_batch[index, :lengths[index]] = sequence
-                padded_labels[index, :lengths[index]] = batch_labels[index]
-            else:
-                padded_batch[index, :] = sequence[-max_sequence_length:]
-                padded_labels[index, :] = batch_labels[
-                    index][-max_sequence_length:]
-        return padded_batch, padded_labels, lengths
 
     def create_samples(self, instances, labels, samples_num, partition_sizes,
                        use_numeric_labels=False, sort_by_length=False):
