@@ -4,7 +4,7 @@ import numpy
 import tensorflow as tf
 import tflearn
 
-from models.mlp import MLPModel
+from quick_experiment.models.mlp import MLPModel
 
 tf.logging.set_verbosity(tf.logging.ERROR)
 logging.basicConfig(level=logging.INFO)

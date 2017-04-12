@@ -1,7 +1,7 @@
 import numpy
 import tensorflow as tf
 
-from models.lstm import SeqPredictionModel
+from lstm import SeqPredictionModel
 
 
 class DKTModel(SeqPredictionModel):

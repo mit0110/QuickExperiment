@@ -1,12 +1,12 @@
 
-import dataset
+from quick_experiment import dataset
 import numpy
 import random
 import tensorflow as tf
 import unittest
 
 from sklearn.preprocessing import OneHotEncoder
-from models import lstm
+from quick_experiment.models import lstm
 
 
 class LSTMModelTest(unittest.TestCase):

@@ -1,4 +1,4 @@
-import dataset
+from quick_experiment import dataset
 import numpy
 import random
 import unittest

@@ -3,8 +3,8 @@ import os
 import numpy
 import tensorflow as tf
 
-import utils
-from model import BaseModel
+from quick_experiment import utils
+from quick_experiment.model import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 
