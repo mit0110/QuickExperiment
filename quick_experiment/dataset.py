@@ -649,12 +649,14 @@ class LabeledSequenceDataset(SequenceDataset):
                 sequence is a matrix.
             batch_labels: a list of sequence labels of size batch_size. Each
                 label is a vector.
-            max_sequence_length (int): the maximum sequence lenght
+            max_sequence_length (int): the maximum sequence lenght or None
 
         Returns:
             A tuple with the padded batch and the original lengths.
         """
         lengths = self._get_sequence_lengths(batch_instances)
+        if max_sequence_length is None:
+            max_sequence_length = lengths.max()
         padded_batch = numpy.zeros((batch_instances.shape[0],
                                     max_sequence_length,
                                     self.feature_vector_size))

@@ -117,6 +117,11 @@ class LSTMModel(MLPModel):
                 tf.summary.histogram('outputs', outputs)
         return last_output
 
+    def run_train_op(self, epoch, loss, partition_name, train_op):
+        # We need to run the train op cutting the sequence in chunks of
+        # max_steps size
+        feed_dict = self._fill_feed_dict(partition_name)
+
     def log_gradients(self, gradients):
         if self.logs_dirname is None:
             return

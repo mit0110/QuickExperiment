@@ -181,7 +181,7 @@ class MLPModel(BaseModel):
 
             if self.logs_dirname is not None:
                 # Summarize metrics for TensorBoard
-                summary = tf.summary.merge_all()
+                self.summary_op = tf.summary.merge_all()
 
             # Create a saver for writing training checkpoints.
             self.saver = tf.train.Saver()
@@ -192,23 +192,14 @@ class MLPModel(BaseModel):
             self.sess = tf.Session()
             if self.logs_dirname is not None:
                 # Instantiate a SummaryWriter to output summaries and the Graph.
-                summary_writer = tf.summary.FileWriter(self.logs_dirname,
+                self.summary_writer = tf.summary.FileWriter(self.logs_dirname,
                                                        self.sess.graph)
             self.sess.run([init, init_local])
 
             # Run the training loop
             for epoch in range(self.training_epochs):
-                feed_dict = self._fill_feed_dict(partition_name)
-
-                # Run one step of the model.  The return values are the
-                # activations from the train_op (which is discarded) and
-                # the loss Op.
-                _, loss_value = self.sess.run([train_op, loss],
-                                              feed_dict=feed_dict)
-                if self.logs_dirname is not None and epoch % 10 is 0:
-                    summary_str = self.sess.run(summary, feed_dict=feed_dict)
-                    summary_writer.add_summary(summary_str, epoch)
-                    summary_writer.flush()
+                loss_value = self.run_train_op(epoch, loss, partition_name,
+                                               train_op)
 
                 if (epoch is not 0 and self.log_values is not 0
                         and epoch % self.log_values is 0):
@@ -222,6 +213,19 @@ class MLPModel(BaseModel):
 
         if close_session:
             self.sess.close()
+
+    def run_train_op(self, epoch, loss, partition_name, train_op):
+        feed_dict = self._fill_feed_dict(partition_name)
+        # Run one step of the model.  The return values are the
+        # activations from the train_op (which is discarded) and
+        # the loss Op.
+        _, loss_value = self.sess.run([train_op, loss],
+                                      feed_dict=feed_dict)
+        if self.logs_dirname is not None and epoch % 10 is 0:
+            summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
+            self.summary_writer.add_summary(summary_str, epoch)
+            self.summary_writer.flush()
+        return loss_value
 
     def evaluate_validation(self, correct_predictions):
         true_count = 0
