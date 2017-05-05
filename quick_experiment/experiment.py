@@ -135,8 +135,11 @@ class SampledExperiment(Experiment):
         for sample in range(self.dataset.samples_num):
             # Train classifier
             self.dataset.set_current_sample(sample)
+            logging.info('Creating model for sample {}'.format(sample))
             self._create_model(sample)
+            logging.info('Training model')
             self.model.fit('train')
+            logging.info('Model trained')
             # Save model
             if save_model:
                 self.model.save_to_file(directory_name=self.results_dirpath,

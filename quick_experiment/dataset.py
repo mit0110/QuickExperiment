@@ -555,7 +555,7 @@ class SequenceDataset(SimpleSampledDataset):
     def _pad_batch(self, batch_instances, batch_labels,
                    max_sequence_length=None):
         """Pad sequences with 0 to the length of the longer sequence in the
-        batch.
+        batch or a multiple of max_sequence_length.
 
         Args:
             batch_instances: a list of sequences of size batch_size. Each
@@ -568,16 +568,14 @@ class SequenceDataset(SimpleSampledDataset):
         """
         lengths = self._get_sequence_lengths(batch_instances)
         if max_sequence_length is not None:
-            max_length = min(lengths.max(), max_sequence_length)
+            max_length = ((lengths.max() / max_sequence_length + 1) *
+                          max_sequence_length)
         else:
             max_length = lengths.max()
         padded_batch = numpy.zeros(
             (batch_instances.shape[0], max_length, self.feature_vector_size))
         for index, sequence in enumerate(batch_instances):
-            if lengths[index] <= max_length:
                 padded_batch[index, :lengths[index]] = sequence
-            else:
-                padded_batch[index, :] = sequence[lengths[index]-max_length:]
         return padded_batch, batch_labels, lengths
 
     def next_batch(self, batch_size, partition_name='train',
@@ -655,21 +653,17 @@ class LabeledSequenceDataset(SequenceDataset):
             A tuple with the padded batch and the original lengths.
         """
         lengths = self._get_sequence_lengths(batch_instances)
-        if max_sequence_length is None:
+        if max_sequence_length is not None:
+            max_length = ((lengths.max() / max_sequence_length + 1) *
+                          max_sequence_length)
+        else:
             max_sequence_length = lengths.max()
-        padded_batch = numpy.zeros((batch_instances.shape[0],
-                                    max_sequence_length,
+        padded_batch = numpy.zeros((batch_instances.shape[0], max_length,
                                     self.feature_vector_size))
-        padded_labels = numpy.zeros(
-            (batch_instances.shape[0], max_sequence_length))
+        padded_labels = numpy.zeros((batch_instances.shape[0], max_length))
         for index, sequence in enumerate(batch_instances):
-            if lengths[index] <= max_sequence_length:
-                padded_batch[index, :lengths[index]] = sequence
-                padded_labels[index, :lengths[index]] = batch_labels[index]
-            else:
-                padded_batch[index, :] = sequence[-max_sequence_length:]
-                padded_labels[index, :] = batch_labels[
-                    index][-max_sequence_length:]
+            padded_batch[index, :lengths[index]] = sequence
+            padded_labels[index, :lengths[index]] = batch_labels[index]
         return padded_batch, padded_labels, lengths
 
 
