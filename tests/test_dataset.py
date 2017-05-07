@@ -257,14 +257,14 @@ class TestUnlabeledSequenceDataset(unittest.TestCase):
         for sequence, sequence_labels in zip(self.dataset._instances, labels):
             # Same number of labels and elements in the sequence
             self.assertEqual(sequence.shape[0], sequence_labels.shape[0])
-            self.assertEqual(1, sequence_labels.ndim)
             for index in range(sequence.shape[0] - 1):
                 # The label must be equal to the index in the next one hot
                 # encoding.
-                self.assertEqual(numpy.argmax(sequence[index + 1]),
-                                 sequence_labels[index])
+                self.assertTrue(numpy.array_equal(
+                    sequence[index + 1], sequence_labels[index, :-1]))
             # Check last label
-            self.assertEqual(sequence_labels[-1], self.dataset.EOS_symbol)
+            self.assertTrue(numpy.array_equal(sequence_labels[-1],
+                                              self.dataset.EOS_vector))
 
 
 if __name__ == '__main__':

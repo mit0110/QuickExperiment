@@ -5,7 +5,7 @@ import numpy
 import utils
 
 from collections import namedtuple
-from scipy.sparse import csr_matrix, coo_matrix
+from scipy import sparse
 
 
 Partition = namedtuple('Partition', ['instances', 'labels'])
@@ -505,8 +505,8 @@ class SequenceDataset(SimpleSampledDataset):
     @property
     def feature_vector_size(self):
         first_sequence = self._instances[0]
-        if isinstance(first_sequence, csr_matrix) or isinstance(
-                first_sequence, coo_matrix):
+        if isinstance(first_sequence, sparse.csr_matrix) or isinstance(
+                first_sequence, sparse.coo_matrix):
             return first_sequence.shape[1]
         if isinstance(first_sequence[0], numpy.ndarray):
             return first_sequence[0].shape[0]
@@ -601,7 +601,7 @@ class SequenceDataset(SimpleSampledDataset):
         instances, labels = super(SequenceDataset, self).next_batch(
             batch_size, partition_name)
         # Convert instances to dense if they are sparse
-        if isinstance(instances[0], csr_matrix):
+        if isinstance(instances[0], sparse.csr_matrix):
             instances = numpy.array([instance.todense()
                                      for instance in instances])
         if pad_sequences:
@@ -629,7 +629,7 @@ class SequenceDataset(SimpleSampledDataset):
         for instances, labels in super(SequenceDataset, self).traverse_dataset(
                 batch_size, partition_name):
             # Convert instances to dense if they are sparse
-            if isinstance(instances[0], csr_matrix):
+            if isinstance(instances[0], sparse.csr_matrix):
                  instances = numpy.array([instance.todense()
                                           for instance in instances])
             if pad_sequences:
@@ -699,16 +699,24 @@ class UnlabeledSequenceDataset(LabeledSequenceDataset):
 
     def _get_labels(self):
         """Returns the correct labels for self._instances"""
-        labels = []
+        result_labels = []
         for sequence in self._instances:
-            sequence_labels = sequence.argmax(axis=-1)[1:]
+            labels = sequence[1:]
             # Add the EOS vector
-            if sequence_labels.ndim > 1:
-                sequence_labels = numpy.squeeze(numpy.asarray(sequence_labels))
-            sequence_labels = numpy.append(sequence_labels, [self.EOS_symbol])
-            labels.append(sequence_labels)
-        return numpy.array(labels)
-
+            if isinstance(labels, numpy.ndarray):
+                labels = numpy.hstack([
+                    labels, numpy.zeros((labels.shape[0], 1))])
+                labels = numpy.vstack([labels, self.EOS_vector])
+            elif isinstance(labels, sparse.csr_matrix):
+                labels = sparse.hstack([
+                    labels, numpy.zeros((labels.shape[0], 1))])
+                labels = sparse.vstack([labels, self.EOS_vector])
+            elif isinstance(labels, list):
+                labels = [x.append(0) for x in labels] + [self.EOS_vector]
+            else:
+                raise TypeError('Unknown type for labels.')
+            result_labels.append(labels)
+        return numpy.array(result_labels)
 
     def create_samples(self, instances, labels, samples_num, partition_sizes,
                        use_numeric_labels=False, sort_by_length=False):
