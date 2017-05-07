@@ -163,6 +163,66 @@ class SequenceDatasetTest(unittest.TestCase):
                     self.assertAlmostEqual(0, row[length:].max(), places=3)
 
 
+class LabeledSequenceDatasetTest(unittest.TestCase):
+    """Test for class SimpleSampledDataset"""
+    def setUp(self):
+        num_examples = 20
+        # The matrix is an array of sequences of varying sizes. Each
+        # sequence is an array of one element.
+        self.matrix = [
+            numpy.array([[x, x+1] for x in range(sequence_length)])
+            for sequence_length in random.sample(k=num_examples,
+                                                 population=range(3, 28))]
+        self.matrix = numpy.array(self.matrix)
+        self.labels = numpy.array([[element[0] + 4 for element in sequence]
+                                   for sequence in self.matrix])
+        # We ensure each label is at least three times
+        self.partition_sizes = {
+            'train': 0.5, 'test': 0.25, 'val': 0.1
+        }
+        self.dataset = dataset.LabeledSequenceDataset()
+        self.dataset.create_samples(self.matrix, self.labels, 1,
+                                    self.partition_sizes, sort_by_length=True)
+        self.dataset.set_current_sample(0)
+
+    def test_padded_batches(self):
+        """Tests the dataset produces batches of padded sequences.
+
+        Each padded sequence should be filled with 0s until the nearest
+        multiple of max_sequence_length."""
+        for i in range(3):
+            # We have 20 examples
+            batch, labels, lengths = self.dataset.next_batch(
+                batch_size=4, partition_name='train', max_sequence_length=3)
+            batch = batch.astype(self.matrix.dtype)
+            self.assertIsInstance(batch, numpy.ndarray)
+            self.assertEqual(len(batch.shape), 3)
+
+            self.assertTrue(batch.shape[1] % 3 == 0)
+            self.assertEqual(labels.shape[1], batch.shape[1])
+
+            for index, row in enumerate(batch):
+                label = labels[index]
+                length = lengths[index]
+                original_instance = row[:length]
+
+                instance_index = None
+                for idx, instance in enumerate(self.matrix):
+                    if numpy.array_equal(instance, original_instance):
+                        instance_index = idx
+                        break
+                self.assertIsNotNone(
+                    instance_index,
+                    msg='Instances {} not present in matrix {}'.format(
+                        original_instance, self.matrix))
+
+                self.assertTrue(numpy.array_equal(
+                    self.labels[instance_index], label[:length])
+                )
+                if length < batch.shape[1]:
+                    self.assertAlmostEqual(0, row[length:].max(), places=3)
+
+
 class TestUnlabeledSequenceDataset(unittest.TestCase):
 
     def _get_one_hot_encoding(self, x):
