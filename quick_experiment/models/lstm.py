@@ -141,7 +141,7 @@ class LSTMModel(MLPModel):
         self.log_gradients(gradients)
         return optimizer.apply_gradients(gradients, global_step=global_step)
 
-    def _fill_feed_dict(self, partition_name='train'):
+    def _fill_feed_dict(self, partition_name='train', reshuffle=True):
         """Fills the feed_dict for training the given step.
 
         Args:
@@ -151,9 +151,12 @@ class LSTMModel(MLPModel):
         Returns:
             feed_dict: The feed dictionary mapping from placeholders to values.
         """
-        instances, labels, lengths = self.dataset.next_batch(
+        batch = self.dataset.next_batch(
             self.batch_size, partition_name, pad_sequences=True,
-            max_sequence_length=self.max_num_steps)
+            max_sequence_length=self.max_num_steps, reshuffle=reshuffle)
+        if batch is None:
+            return None
+        instances, labels, lengths = batch
         result = {
             self.instances_placeholder: instances.astype(numpy.float32),
             self.lengths_placeholder: lengths
@@ -162,41 +165,28 @@ class LSTMModel(MLPModel):
             result[self.labels_placeholder] = labels
         return result
 
-    def _fill_feed_dict_traversing(self, partition_name='train'):
-        """Fills the feed_dict for training the given step.
-
-        Args:
-            partition_name (string): The name of the partition to get the batch
-                from.
-
-        Yields:
-            feed_dict: The feed dictionary mapping from placeholders to values.
-        """
-        for instances, labels, lengths in self.dataset.traverse_dataset(
-                self.batch_size, partition_name,
-                max_sequence_length=self.max_num_steps):
-            feed_dict = {
-                self.instances_placeholder: instances,
-                self.labels_placeholder: labels,
-                self.lengths_placeholder: lengths
-            }
-            yield feed_dict
-
     def predict(self, partition_name):
         predictions = []
         true = []
+        self.dataset.reset_batch()
         with self.graph.as_default():
-            for feed_dict in self._fill_feed_dict_traversing(partition_name):
+            feed_dict = self._fill_feed_dict(partition_name, reshuffle=False)
+            while feed_dict is not None:
                 predictions.extend(self.sess.run(self.predictions,
                                                  feed_dict=feed_dict))
                 true.append(feed_dict[self.labels_placeholder])
+                feed_dict = self._fill_feed_dict(partition_name,
+                                                 reshuffle=False)
         return numpy.array(predictions), numpy.concatenate(true)
 
     def evaluate_validation(self, correct_predictions):
         true_count = 0
-        for feed_dict in self._fill_feed_dict_traversing('validation'):
+        self.dataset.reset_batch()
+        feed_dict = self._fill_feed_dict('validation', reshuffle=False)
+        while feed_dict is not None:
             true_count += self.sess.run(correct_predictions,
                                         feed_dict=feed_dict)
+            feed_dict = self._fill_feed_dict('validation', reshuffle=False)
         return true_count / float(self.dataset.num_examples('validation'))
 
 
@@ -218,7 +208,8 @@ class SeqPredictionModel(LSTMModel):
             tf.int32, (None, ), name='lengths_placeholder')
 
         self.labels_placeholder = tf.placeholder(
-            self.dataset.labels_type, (None, self.max_num_steps),
+            self.dataset.labels_type,
+            (None, self.max_num_steps, self.dataset.classes_num()),
             name='labels_placeholder')
 
     def reshape_output(self, outputs, lengths):
@@ -249,11 +240,49 @@ class SeqPredictionModel(LSTMModel):
 
         return logits
 
+    def _build_state_variables(self, cell):
+        # Get the initial state and make a variable out of it
+        # to enable updating its value.
+        state_c, state_h = cell.zero_state(self.batch_size, tf.float32)
+        return tf.contrib.rnn.LSTMStateTuple(
+            tf.Variable(state_c, trainable=False),
+            tf.Variable(state_h, trainable=False))
+
+    @staticmethod
+    def _get_state_update_op(state_variables, new_state):
+        # Add an operation to update the train states with the last state
+        # Assign the new state to the state variables on this layer
+        return (state_variables[0].assign(new_state[0]),
+                state_variables[1].assign(new_state[1]))
+
+    def _build_recurrent_layer(self):
+        # The recurrent layer
+        rnn_cell = tf.contrib.rnn.BasicLSTMCell(
+            self.hidden_layer_size, forget_bias=1.0)
+        with tf.name_scope('recurrent_layer') as scope:
+            # Get the initial state. States will be a LSTMStateTuples.
+            state_variable = self._build_state_variables(rnn_cell)
+            # outputs is a Tensor shaped [batch_size, max_time,
+            # cell.output_size].
+            # State is a Tensor shaped [batch_size, cell.state_size]
+            outputs, new_state = tf.nn.dynamic_rnn(
+                rnn_cell, inputs=self.instances_placeholder,
+                sequence_length=self.lengths_placeholder, scope=scope,
+                initial_state=state_variable)
+            # Define the state operations. This wont execute now.
+            self.last_state_op = self._get_state_update_op(state_variable,
+                                                           new_state)
+            self.reset_state_op = self._get_state_update_op(
+                state_variable,
+                rnn_cell.zero_state(self.batch_size, tf.float32))
+        return outputs
+
     def _build_loss(self, logits):
         """Calculates the average binary cross entropy.
 
         Args:
-            logits: Tensor - [batch_size, max_num_steps, classes_num]"""
+            logits: Tensor - [batch_size, max_num_steps, classes_num]
+        """
         logits_shape = logits.get_shape()
         assert self.labels_placeholder.get_shape()[1] == logits_shape[1]
         # Calculate the cross entropy for the prediction of each step.
@@ -262,16 +291,13 @@ class SeqPredictionModel(LSTMModel):
         # We want to compare the true label against the predicted probability
         # of that label
         logits = tf.log(tf.nn.softmax(logits))
-        label_encodings = tf.one_hot(indices=self.labels_placeholder,
-                                     depth=logits_shape[-1],
-                                     dtype=logits.dtype)
 
-        cross_entropy = -tf.multiply(logits, label_encodings)
-        # cross_entropy has shape [batch_size, max_num_steps, feature_size] but
+        cross_entropy = -tf.multiply(
+            logits, tf.cast(self.labels_placeholder, dtype=logits.dtype))
+        # cross_entropy has shape [batch_size, max_num_steps, classes_num] but
         # has only one active record per element of each sequence
 
-        # Now we sum over all classes (in this case, it's equivalent of taking
-        # the max since only one element of y_true is active per example
+        # Now we sum over all classes.
         cross_entropy = tf.reduce_sum(cross_entropy, axis=2)
         cross_entropy = tf.multiply(cross_entropy, tf.sequence_mask(
             self.lengths_placeholder, logits_shape[1], dtype=logits.dtype))
@@ -287,23 +313,83 @@ class SeqPredictionModel(LSTMModel):
         # Finally, we take the average over all examples in batch.
         return tf.reduce_mean(cross_entropy)
 
+    def run_train_op(self, epoch, loss, partition_name, train_op):
+        # Reset the neural_network_value
+        self.sess.run(self.reset_state_op)
+        # We need to run the train op cutting the sequence in chunks of
+        # max_steps size
+        loss_value = []
+        for feed_dict in self._fill_feed_dict(partition_name):
+            _, _, step_loss_value = self.sess.run(
+                [train_op, self.last_state_op, loss], feed_dict=feed_dict)
+            loss_value.append(step_loss_value)
+
+        return numpy.mean(loss_value)
+
+    def _fill_feed_dict(self, partition_name='train', reshuffle=True):
+        """Fills the feed_dict for training the given step.
+
+        Args:
+            partition_name (string): The name of the partition to get the batch
+                from.
+
+        Yields:
+            The feed dictionaries mapping from placeholders to values with
+                each chunk of size self.max_num_steps for the current batch.
+        """
+        batch = self.dataset.next_batch(
+            self.batch_size, partition_name, pad_sequences=True,
+            max_sequence_length=self.max_num_steps, reshuffle=reshuffle)
+        if batch is None:
+            raise ValueError('Batch is None')
+        instances, labels, lengths = batch
+        step_size = self.max_num_steps or instances.shape[1]
+        assert instances.shape[1] % step_size == 0
+        for start_index in range(0, instances.shape[1], step_size):
+            feed_dict = self._get_step_dict(instances, labels, lengths,
+                                            start_index, step_size)
+            yield feed_dict
+
+    def _get_step_dict(self, instances, labels, lengths, start_index,
+                       step_size):
+        step_instances = instances[:, start_index: start_index + step_size]
+        step_labels = labels[:, start_index: start_index + step_size]
+        step_lengths = numpy.clip(
+            numpy.where(lengths >= start_index, lengths - start_index, 0),
+            a_max=self.max_num_steps, a_min=0)
+        feed_dict = {
+            self.instances_placeholder: step_instances,
+            self.lengths_placeholder: step_lengths,
+            self.labels_placeholder: step_labels
+        }
+        return feed_dict
+
     def predict(self, partition_name):
         predictions = []
         true = []
+        self.dataset.reset_batch()
         with self.graph.as_default():
-            for feed_dict in self._fill_feed_dict_traversing(partition_name):
-                lengths = feed_dict[self.lengths_placeholder]
-                batch_prediction = self.sess.run(self.predictions,
-                                                 feed_dict=feed_dict)
-                # batch prediction has shape [batch_size, max_num_steps]
-                # now we need to return only the predictions in the sequence
-                predictions.extend([batch_prediction[index, :length]
-                                    for index, length in enumerate(lengths)])
-                true.extend([
-                    feed_dict[self.labels_placeholder][index, :length]
-                    for index, length in enumerate(lengths)])
+            while self.dataset.has_next_batch(self.batch_size, partition_name):
+                batch_prediction = [numpy.array([]) for
+                                    _ in range(self.batch_size)]
+                batch_true = [numpy.array([]) for _ in range(self.batch_size)]
+                for feed_dict in self._fill_feed_dict(partition_name,
+                                                      reshuffle=False):
+                    self._get_step_predictions(batch_prediction, batch_true,
+                                               feed_dict)
+                predictions.extend(batch_prediction)
+                true.extend(batch_true)
 
         return numpy.array(predictions), numpy.array(true)
+
+    def _get_step_predictions(self, batch_prediction, batch_true, feed_dict):
+        step_prediction = self.sess.run(self.predictions, feed_dict=feed_dict)
+        labels = numpy.argmax(feed_dict[self.labels_placeholder], axis=-1)
+        for index, length in enumerate(feed_dict[self.lengths_placeholder]):
+            batch_prediction[index] = numpy.append(
+                batch_prediction[index], step_prediction[index, :length])
+            batch_true[index] = numpy.append(
+                batch_true[index], labels[index, :length])
 
     def _build_predictions(self, logits):
         """Return a tensor with the predicted class for each instance.
@@ -339,18 +425,21 @@ class SeqPredictionModel(LSTMModel):
                 dtype=predictions.dtype)
             # We use the mask to ignore predictions outside the sequence length.
             accuracy, accuracy_update = tf.contrib.metrics.streaming_accuracy(
-                predictions, self.labels_placeholder, weights=mask)
+                predictions, tf.argmax(self.labels_placeholder, -1),
+                weights=mask)
 
         return accuracy, accuracy_update
 
     def evaluate_validation(self, correct_predictions):
+        partition = 'validation'
         # Reset the accuracy variables
         stream_vars = [i for i in tf.local_variables()
                        if i.name.split('/')[0] == 'evaluation_accuracy']
         accuracy_op, accuracy_update_op = correct_predictions
-        for feed_dict in self._fill_feed_dict_traversing('validation'):
-            self.sess.run([accuracy_update_op], feed_dict=feed_dict)
-        accuracy = self.sess.run([accuracy_op])
+        self.dataset.reset_batch()
+        while self.dataset.has_next_batch(self.batch_size, partition):
+            for feed_dict in self._fill_feed_dict(partition, reshuffle=False):
+                self.sess.run([accuracy_update_op], feed_dict=feed_dict)
+                accuracy = self.sess.run([accuracy_op])
         self.sess.run([tf.variables_initializer(stream_vars)])
         return accuracy[0]
-

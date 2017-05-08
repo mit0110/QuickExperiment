@@ -203,8 +203,8 @@ class MLPModel(BaseModel):
 
                 if (epoch is not 0 and self.log_values is not 0
                         and epoch % self.log_values is 0):
-                    print 'Classifier loss at step {}: {}'.format(
-                        epoch * self.batch_size, loss_value
+                    print 'Classifier loss at step {} ({}): {}'.format(
+                        epoch, epoch * self.batch_size, loss_value
                     )
                     accuracy = self.evaluate_validation(correct_predictions)
                     # if self.logs_dirname is not None:
@@ -229,22 +229,30 @@ class MLPModel(BaseModel):
 
     def evaluate_validation(self, correct_predictions):
         true_count = 0
-        for instance_batch, labels_batch in self.dataset.traverse_dataset(
-                self.batch_size, 'validation'):
+        self.dataset.reset_batch()
+        batch = self.dataset.next_batch(self.batch_size, 'validation',
+                                        reshuffle=False)
+        while batch is not None:
+            instance_batch, labels_batch = batch
             feed_dict = {
                 self.instances_placeholder: instance_batch,
                 self.labels_placeholder: labels_batch
             }
             true_count += self.sess.run(correct_predictions,
                                         feed_dict=feed_dict)
+            batch = self.dataset.next_batch(self.batch_size, 'validation',
+                                            reshuffle=False)
         return true_count / float(self.dataset.num_examples('validation'))
 
     def predict(self, partition_name):
         predictions = []
         true = []
+        self.dataset.reset_batch()
         with self.graph.as_default():
-            for instance_batch, labels_batch in self.dataset.traverse_dataset(
-                    self.batch_size, partition_name):
+            batch = self.dataset.next_batch(self.batch_size, 'validation',
+                                            reshuffle=False)
+            while batch is not None:
+                instance_batch, labels_batch = batch
                 feed_dict = {
                     self.instances_placeholder: instance_batch,
                     self.labels_placeholder: labels_batch
@@ -252,5 +260,7 @@ class MLPModel(BaseModel):
                 predictions.extend(self.sess.run(self.predictions,
                                                  feed_dict=feed_dict))
                 true.append(labels_batch)
+                batch = self.dataset.next_batch(self.batch_size, 'validation',
+                                                reshuffle=False)
         return numpy.array(predictions), numpy.concatenate(true)
 

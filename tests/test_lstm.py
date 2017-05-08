@@ -13,6 +13,7 @@ class LSTMModelTest(unittest.TestCase):
     """Tests for building and running a LSTMModel instance"""
 
     def setUp(self):
+        tf.reset_default_graph()
         num_examples = 100
         # The matrix is an array of sequences of varying sizes. Each
         # sequence is an array of two elements.
@@ -38,6 +39,17 @@ class LSTMModelTest(unittest.TestCase):
         # Check build does not raise errors
         model = lstm.LSTMModel(self.dataset, **self.model_arguments)
         model.fit(close_session=True)
+
+    def test_predict(self):
+        """Test if the LSTMModel is correctly built."""
+        # Check build does not raise errors
+        model = lstm.LSTMModel(self.dataset, **self.model_arguments)
+        model.fit()
+        true, predictions = model.predict('test')
+        expected_size = ((self.dataset.num_examples('test') /
+                          model.batch_size) * model.batch_size)
+        self.assertEqual(true.shape[0], expected_size)
+        self.assertEqual(true.shape, predictions.shape)
 
     def test_reshape_output(self):
         """Test if the output are correctly reshaped after the dynamic_rnn call.
@@ -114,7 +126,7 @@ class SeqPredictionModelTest(unittest.TestCase):
         num_examples = 50
         self.max_num_steps = 10
         self.feature_size = 5
-        self.batch_size = 20
+        self.batch_size = 5  # Validation size
         # The matrix is an array of sequences of varying sizes. Each
         # sequence is an array of two elements.
         self.matrix = [self._get_random_sequence() for _ in range(num_examples)]
@@ -130,7 +142,7 @@ class SeqPredictionModelTest(unittest.TestCase):
         self.model_arguments = {
             'hidden_layer_size': 40, 'batch_size': self.batch_size,
             'logs_dirname': None,
-            'log_values': True, 'training_epochs': 100,
+            'log_values': 10, 'training_epochs': 100,
             'max_num_steps': self.max_num_steps}
         # Check build does not raise errors
         self.model = lstm.SeqPredictionModel(self.dataset,
@@ -154,7 +166,7 @@ class SeqPredictionModelTest(unittest.TestCase):
             init = tf.global_variables_initializer()
             sess = tf.Session()
             sess.run(init)
-            feed_dict = self.model._fill_feed_dict('train')
+            feed_dict = self.model._fill_feed_dict('train').next()
             softmax, result = sess.run([softmax, loss], feed_dict=feed_dict)
             sess.close()
         # Calculate loss
@@ -164,9 +176,9 @@ class SeqPredictionModelTest(unittest.TestCase):
             sequence_loss = []
             for element_index in range(
                     feed_dict[self.model.lengths_placeholder][index]):
-                correct_label = int(sequence[element_index])
-                sequence_loss.append(-1 * numpy.log(
-                    softmax[index, element_index, correct_label]))
+                correct_label = sequence[element_index]
+                sequence_loss.append(-1 * numpy.log(numpy.sum(
+                    softmax[index, element_index] * correct_label)))
             expected_loss.append(numpy.mean(sequence_loss))
         expected_loss = numpy.mean(expected_loss)
 
@@ -175,8 +187,9 @@ class SeqPredictionModelTest(unittest.TestCase):
     def _get_correctly_predicted(self, labels, lengths, logit_labels):
         total_correct = 0
         for sequence_index, sequence in enumerate(labels):
-            for label_index, true_label in enumerate(
+            for label_index, true_label_vector in enumerate(
                     sequence[:lengths[sequence_index]]):
+                true_label = numpy.argmax(true_label_vector)
                 if true_label == logit_labels[sequence_index, label_index]:
                     total_correct += 1
         return total_correct
@@ -195,7 +208,7 @@ class SeqPredictionModelTest(unittest.TestCase):
             sess = tf.Session()
             sess.run(tf.local_variables_initializer())
             for iteration in range(iterations):
-                feed_dict = self.model._fill_feed_dict('train')
+                feed_dict = self.model._fill_feed_dict('train').next()
                 logits_ev, _ = sess.run([logits, accuracy_update_op],
                                                    feed_dict=feed_dict)
                 labels = feed_dict[self.model.labels_placeholder]

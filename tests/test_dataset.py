@@ -31,7 +31,7 @@ class SimpleDatasetTest(unittest.TestCase):
 
     def test_unlimited_batches(self):
         """Tests the dataset can produce unlimited batches."""
-        for i in range(10):
+        for _ in range(10):
             batch, labels = self.dataset.next_batch(batch_size=2,
                                                     partition_name='train')
             self.assertEqual(batch.shape[0], 2)
@@ -44,6 +44,21 @@ class SimpleDatasetTest(unittest.TestCase):
                 self.assertEqual(
                     self.labels[instance_index], label
                 )
+
+    def test_non_unlimited_batches(self):
+        """Tests the dataset can produce unlimited batches."""
+        batch, labels = self.dataset.next_batch(
+            batch_size=2, partition_name='train', reshuffle=False)
+        self.assertEqual(batch.shape[0], 2)
+        self.assertEqual(labels.shape[0], 2)
+        result = self.dataset.next_batch(batch_size=2, partition_name='train',
+                                         reshuffle=False)
+        self.assertIsNone(result)
+        self.dataset.reset_batch()
+        batch, labels = self.dataset.next_batch(
+            batch_size=2, partition_name='train', reshuffle=False)
+        self.assertEqual(batch.shape[0], 2)
+        self.assertEqual(labels.shape[0], 2)
 
 
 class SimpleSampledDatasetTest(unittest.TestCase):
@@ -174,7 +189,7 @@ class LabeledSequenceDatasetTest(unittest.TestCase):
             for sequence_length in random.sample(k=num_examples,
                                                  population=range(3, 28))]
         self.matrix = numpy.array(self.matrix)
-        self.labels = numpy.array([[element[0] + 4 for element in sequence]
+        self.labels = numpy.array([[[element[0] + 4] for element in sequence]
                                    for sequence in self.matrix])
         # We ensure each label is at least three times
         self.partition_sizes = {

@@ -95,7 +95,7 @@ class BaseDataset(object):
                 partition, self.num_examples(partition))
         logging.info(message)
 
-    def next_batch(self, batch_size, partition_name='train'):
+    def next_batch(self, batch_size, partition_name='train', reshuffle=True):
         """Generates batches of instances and labels from a partition.
 
         If the size of the partition is exceeded, the partition and the labels
@@ -105,6 +105,9 @@ class BaseDataset(object):
             batch_size (int): the size of each batch to generate.
             partition_name (str): the name of the partition to create the
                 batches from.
+            reshuffle (bool, default True): when the dataset has been entirely
+                traversed, shuffle the partition and start over. If false,
+                returns None.
         """
         raise NotImplementedError
 
@@ -115,18 +118,6 @@ class BaseDataset(object):
         else:
             filename = '{}.p'.format(objective)
         return os.path.join(directory_name, filename)
-
-    def traverse_dataset(self, batch_size, partition_name):
-        """Generates batches of instances and labels from a partition.
-
-        The iterator ends when the dataset has been entirely returned.
-
-        Args:
-            batch_size (int): the size of each batch to generate.
-            partition_name (str): the name of the partition to create the
-                batches from.
-        """
-        raise NotImplementedError
 
     def get_labels(self, partition_name='train'):
         """Returns the labels of the partition
@@ -243,7 +234,14 @@ class SimpleDataset(BaseDataset):
             directory_name, 'indices', name))
         self.create_from_matrixes(instances, indices, labels)
 
-    def next_batch(self, batch_size, partition_name='train'):
+    def reset_batch(self):
+        self._last_batch_end = 0
+
+    def has_next_batch(self, batch_size, partition_name='train'):
+        return self._last_batch_end + batch_size <= self.num_examples(
+            partition_name)
+
+    def next_batch(self, batch_size, partition_name='train', reshuffle=True):
         """Generates batches of instances and labels from a partition.
 
         If the size of the partition is exceeded, the partition and the labels
@@ -255,9 +253,10 @@ class SimpleDataset(BaseDataset):
                 batches from.
         """
         start = self._last_batch_end
-        self._last_batch_end += batch_size
 
-        if self._last_batch_end > self.num_examples(partition_name):
+        if not self.has_next_batch(batch_size, partition_name):
+            if not reshuffle:
+                return None
             # Shuffle the data
             perm = numpy.arange(self.num_examples())
             numpy.random.shuffle(perm)
@@ -270,38 +269,14 @@ class SimpleDataset(BaseDataset):
             start = 0
             self._last_batch_end = batch_size
             assert batch_size <= self.num_examples(partition_name)
+        else:
+            self._last_batch_end += batch_size
 
         end = self._last_batch_end
         batch_labels = None
         if self.datasets[partition_name].labels is not None:
             batch_labels = self.datasets[partition_name].labels[start:end]
         return self.datasets[partition_name].instances[start:end], batch_labels
-
-    def traverse_dataset(self, batch_size, partition_name):
-        """Generates batches of instances and labels from a partition.
-
-        The iterator ends when the dataset has been entirely returned.
-
-        Args:
-            batch_size (int): the size of each batch to generate.
-            partition_name (str): the name of the partition to create the
-                batches from.
-
-        Yields:
-            A tuple (instances, labels) of batch_size, except in the last
-            iteration where the size can be smaller.
-        """
-        instances = self.datasets[partition_name].instances
-        labels = self.datasets[partition_name].labels
-
-        for step in numpy.arange(instances.shape[0], step=batch_size):
-            step_labels = None
-            if labels is not None:
-                step_labels = labels[
-                              step:min(step + batch_size, labels.shape[0])]
-            step_instances = instances[step:min(
-                step + batch_size, instances.shape[0])]
-            yield step_instances, step_labels
 
 
 class BaseSampledDataset(BaseDataset):
@@ -581,7 +556,7 @@ class SequenceDataset(SimpleSampledDataset):
         return padded_batch, batch_labels, lengths
 
     def next_batch(self, batch_size, partition_name='train',
-                   pad_sequences=True, max_sequence_length=None):
+                   pad_sequences=True, max_sequence_length=None, reshuffle=True):
         """Generates batches of instances and labels from a partition.
 
         If the size of the partition is exceeded, the partition and the labels
@@ -598,8 +573,11 @@ class SequenceDataset(SimpleSampledDataset):
         Returns:
             A tuple (instances, labels, lengths) of batch_size.
         """
-        instances, labels = super(SequenceDataset, self).next_batch(
-            batch_size, partition_name)
+        result = super(SequenceDataset, self).next_batch(
+            batch_size, partition_name, reshuffle=reshuffle)
+        if result is None:
+            return result
+        instances, labels = result
         # Convert instances to dense if they are sparse
         if isinstance(instances[0], sparse.csr_matrix):
             instances = numpy.array([instance.todense()
@@ -608,34 +586,6 @@ class SequenceDataset(SimpleSampledDataset):
             return self._pad_batch(instances, labels, max_sequence_length)
         return instances, labels, self._get_sequence_lengths(instances)
 
-    def traverse_dataset(self, batch_size, partition_name,
-                         pad_sequences=True, max_sequence_length=None):
-        """Generates batches of instances and labels from a partition.
-
-        The iterator ends when the dataset has been entirely returned.
-
-        Args:
-            batch_size (int): the size of each batch to generate.
-            partition_name (str): the name of the partition to create the
-                batches from.
-            pad_sequences (bool): If True, all sequences are padded to the
-                length of the longer sequence.
-            max_sequence_length (int, optional): The maximum size of sequences.
-
-        Yields:
-            A tuple (instances, labels, lengths) of batch_size, except in the
-            last iteration where the size can be smaller.
-        """
-        for instances, labels in super(SequenceDataset, self).traverse_dataset(
-                batch_size, partition_name):
-            # Convert instances to dense if they are sparse
-            if isinstance(instances[0], sparse.csr_matrix):
-                 instances = numpy.array([instance.todense()
-                                          for instance in instances])
-            if pad_sequences:
-                yield self._pad_batch(instances, labels, max_sequence_length)
-            else:
-                yield instances, labels, self._get_sequence_lengths(instances)
 
 
 class LabeledSequenceDataset(SequenceDataset):
@@ -662,11 +612,17 @@ class LabeledSequenceDataset(SequenceDataset):
             max_length = lengths.max()
         padded_batch = numpy.zeros((batch_instances.shape[0], max_length,
                                     self.feature_vector_size))
-        padded_labels = numpy.zeros((batch_instances.shape[0], max_length))
+        padded_labels = numpy.zeros((batch_instances.shape[0], max_length,
+                                     self.classes_num()))
         for index, sequence in enumerate(batch_instances):
             padded_batch[index, :lengths[index]] = sequence
             padded_labels[index, :lengths[index]] = batch_labels[index]
         return padded_batch, padded_labels, lengths
+
+    def classes_num(self, _=None):
+        if isinstance(self._labels[0], list):
+            return len(self._labels[0][0])
+        return self._labels[0].shape[-1]
 
 
 class UnlabeledSequenceDataset(LabeledSequenceDataset):
