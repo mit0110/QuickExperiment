@@ -251,6 +251,9 @@ class SimpleDataset(BaseDataset):
             batch_size (int): the size of each batch to generate.
             partition_name (str): the name of the partition to create the
                 batches from.
+            reshuffle (bool): If True, when the dataset has been completly
+                traversed, the instances and labels are shuffled and then
+                returned again.
         """
         start = self._last_batch_end
 
