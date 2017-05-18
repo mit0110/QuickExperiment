@@ -1,6 +1,7 @@
 import os
 import numpy
 import tensorflow as tf
+import time
 
 tf.logging.set_verbosity(tf.logging.ERROR)
 
@@ -89,8 +90,6 @@ class MLPModel(BaseModel):
                 biases_regularizer=tf.contrib.layers.l2_regularizer,
                 reuse=True, trainable=True, scope=scope
             )
-            # if self.logs_dirname is not None:
-            #     tf.summary.histogram('logits', logits)
 
         return logits
 
@@ -109,8 +108,8 @@ class MLPModel(BaseModel):
         return tf.reduce_mean(cross_entropy, name='cross_entropy_mean_loss')
 
     def _build_train_operation(self, loss):
-        # if self.logs_dirname is not None:
-        #     tf.summary.scalar('loss', loss)
+        if self.logs_dirname is not None:
+            tf.summary.scalar('loss', loss)
         optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
@@ -179,9 +178,9 @@ class MLPModel(BaseModel):
             correct_predictions = self._build_evaluation(logits)
             self.predictions = self._build_predictions(logits)
 
-            # if self.logs_dirname is not None:
+            if self.logs_dirname is not None:
                 # Summarize metrics for TensorBoard
-                # self.summary_op = tf.summary.merge_all()
+                self.summary_op = tf.summary.merge_all()
 
             # Create a saver for writing training checkpoints.
             self.saver = tf.train.Saver()
@@ -190,25 +189,27 @@ class MLPModel(BaseModel):
             init = tf.global_variables_initializer()
             init_local = tf.local_variables_initializer()
             self.sess = tf.Session()
-            # if self.logs_dirname is not None:
+            if self.logs_dirname is not None:
                 # Instantiate a SummaryWriter to output summaries and the Graph.
-                # self.summary_writer = tf.summary.FileWriter(self.logs_dirname,
-                #                                        self.sess.graph)
+                self.summary_writer = tf.summary.FileWriter(self.logs_dirname,
+                                                       self.sess.graph)
             self.sess.run([init, init_local])
 
             # Run the training loop
             for epoch in range(self.training_epochs):
+                start_time = time.time()
                 loss_value = self.run_train_op(epoch, loss, partition_name,
                                                train_op)
+                end_time = time.time()
 
-                if (epoch is not 0 and self.log_values is not 0
+                if (epoch != 0 and self.log_values is not 0
                         and epoch % self.log_values is 0):
-                    print 'Classifier loss at step {} ({}): {}'.format(
-                        epoch, epoch * self.batch_size, loss_value
+                    print 'Classifier loss at step {} ({:.2f}s): {}'.format(
+                        epoch, end_time - start_time, loss_value
                     )
                     accuracy = self.evaluate_validation(correct_predictions)
-                    # if self.logs_dirname is not None:
-                    #     tf.summary.scalar('accuracy', accuracy)
+                    if self.logs_dirname is not None:
+                        tf.summary.scalar('validation accuracy', accuracy)
                     print 'Validation accuracy {}'.format(accuracy)
 
         if close_session:
@@ -221,11 +222,14 @@ class MLPModel(BaseModel):
         # the loss Op.
         _, loss_value = self.sess.run([train_op, loss],
                                       feed_dict=feed_dict)
-        # if self.logs_dirname is not None and epoch % 10 is 0:
-        #     summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
-        #     self.summary_writer.add_summary(summary_str, epoch)
-        #     self.summary_writer.flush()
+        if self.logs_dirname is not None and epoch % 10 is 0:
+            self.write_summary(epoch, feed_dict)
         return loss_value
+
+    def write_summary(self, epoch, feed_dict):
+        summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
+        self.summary_writer.add_summary(summary_str, epoch)
+        self.summary_writer.flush()
 
     def evaluate_validation(self, correct_predictions):
         true_count = 0

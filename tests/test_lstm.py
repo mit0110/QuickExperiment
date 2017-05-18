@@ -152,6 +152,27 @@ class SeqPredictionModelTest(unittest.TestCase):
         """Test if the Seq2SeqLSTMModel is correctly built."""
         self.model.fit(close_session=True)
 
+    def test_fit_loss(self):
+        # Emulate the first part of the fit call
+        with tf.Graph().as_default():
+            self.model._build_inputs()
+            # Build a Graph that computes predictions from the inference model.
+            logits = self.model._build_layers()
+            # Add to the Graph the Ops for loss calculation.
+            loss = self.model._build_loss(logits)
+            # Add to the Graph the Ops that calculate and apply gradients.
+            train_op = self.model._build_train_operation(loss)
+
+            init = tf.global_variables_initializer()
+            init_local = tf.local_variables_initializer()
+            self.model.sess = tf.Session()
+            self.model.sess.run([init, init_local])
+            for epoch in range(10):
+                loss_value = self.model.run_train_op(epoch, loss, 'train',
+                                                     train_op)
+                self.assertFalse(numpy.isnan(loss_value),
+                                 msg='The loss value is nan.')
+
     def test_build_loss(self):
         """Test if the loss (binary cross entropy) is built correctly."""
         with tf.Graph().as_default():
@@ -162,12 +183,12 @@ class SeqPredictionModelTest(unittest.TestCase):
                  self.dataset.classes_num('train')))
             self.model._build_inputs()
             loss = self.model._build_loss(logits)
-            softmax = tf.nn.softmax(logits)
+            sigmoid = tf.nn.sigmoid(logits)
             init = tf.global_variables_initializer()
             sess = tf.Session()
             sess.run(init)
             feed_dict = self.model._fill_feed_dict('train').next()
-            softmax, result = sess.run([softmax, loss], feed_dict=feed_dict)
+            sigmoid, result = sess.run([sigmoid, loss], feed_dict=feed_dict)
             sess.close()
         # Calculate loss
         expected_loss = []
@@ -178,7 +199,7 @@ class SeqPredictionModelTest(unittest.TestCase):
                     feed_dict[self.model.lengths_placeholder][index]):
                 correct_label = sequence[element_index]
                 sequence_loss.append(-1 * numpy.log(numpy.sum(
-                    softmax[index, element_index] * correct_label)))
+                    sigmoid[index, element_index] * correct_label)))
             expected_loss.append(numpy.mean(sequence_loss))
         expected_loss = numpy.mean(expected_loss)
 

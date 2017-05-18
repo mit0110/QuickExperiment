@@ -2,7 +2,33 @@ import numpy
 import tensorflow as tf
 import tflearn
 
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import array_ops
+
 from quick_experiment.models.mlp import MLPModel
+
+
+# Copied from tensorflow github.
+def _safe_div(numerator, denominator, name="value"):
+    """Computes a safe divide which returns 0 if the denominator is zero.
+    Note that the function contains an additional conditional check that is
+    necessary for avoiding situations where the loss is zero causing NaNs to
+    creep into the gradient computation.
+    Args:
+    numerator: An arbitrary `Tensor`.
+    denominator: A `Tensor` whose shape matches `numerator` and whose values are
+      assumed to be non-negative.
+    name: An optional name for the returned op.
+    Returns:
+    The element-wise value of the numerator divided by the denominator.
+    """
+    return array_ops.where(
+        math_ops.greater(denominator, 0),
+        math_ops.div(numerator, array_ops.where(
+            math_ops.equal(denominator, 0),
+            array_ops.ones_like(denominator), denominator)),
+        array_ops.zeros_like(numerator),
+        name=name)
 
 
 class LSTMModel(MLPModel):
@@ -36,6 +62,7 @@ class LSTMModel(MLPModel):
             **kwargs)
         self.hidden_layer_size = hidden_layer_size
         self.max_num_steps = max_num_steps
+        self.max_grad_norm = 20
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -88,8 +115,6 @@ class LSTMModel(MLPModel):
                 biases_regularizer=tf.contrib.layers.l2_regularizer,
                 reuse=True, trainable=True, scope=scope
             )
-            if self.logs_dirname is not None:
-                tf.summary.histogram('logits', logits)
         return logits
 
     def _build_recurrent_layer(self):
@@ -107,31 +132,35 @@ class LSTMModel(MLPModel):
                     tf.shape(self.instances_placeholder)[0], tf.float32))
             last_output = self.reshape_output(outputs, self.lengths_placeholder)
             # We take only the last predicted output
-            if self.logs_dirname is not None:
-                tf.summary.histogram('hidden_state', state)
-                tf.summary.histogram('outputs', outputs)
         return last_output
 
     def log_gradients(self, gradients):
         if self.logs_dirname is None:
             return
-        # Add histograms for variables, gradients and gradient norms.
         for gradient, variable in gradients:
             if isinstance(gradient, tf.IndexedSlices):
                 grad_values = gradient.values
             else:
                 grad_values = gradient
-            tf.summary.histogram(variable.name, variable)
-            tf.summary.histogram(variable.name + "/gradients",
-                                 grad_values)
+            tf.summary.scalar(variable.name, tf.reduce_sum(variable))
+            tf.summary.scalar(variable.name + "/gradients",
+                              tf.reduce_sum(grad_values))
+
+    def _clip_gradients(self, gradients):
+        result = []
+        for g, v in gradients:
+            if g is not None:
+                result.append((tf.clip_by_value(g, -1., 1.), v))
+        return result
 
     def _build_train_operation(self, loss):
         if self.logs_dirname is not None:
             tf.summary.scalar('loss', loss)
-        optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+        optimizer = tf.train.AdamOptimizer()
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         gradients = optimizer.compute_gradients(loss)
+        gradients = self._clip_gradients(gradients)
         self.log_gradients(gradients)
         return optimizer.apply_gradients(gradients, global_step=global_step)
 
@@ -207,15 +236,6 @@ class SeqPredictionModel(LSTMModel):
             name='labels_placeholder')
 
     def reshape_output(self, outputs, lengths):
-        """Transforms the network hidden layer output into the input for the
-        softmax layer.
-
-        Args:
-            outputs (Tensor): shape [batch_size, max_time, cell.output_size].
-
-        Returns:
-            A tensor with shape [batch_size, cell.output_size].
-        """
         return outputs
 
     def _build_layers(self):
@@ -224,23 +244,28 @@ class SeqPredictionModel(LSTMModel):
         output = self._build_recurrent_layer()
         # outputs is a Tensor shaped
         # [batch_size, max_num_steps, hidden_size].
-
         # The last layer is for the classifier
+        fully_connected_args = [
+            self.dataset.classes_num(), 'linear', True,
+            'truncated_normal', 'zeros', # weights and bias initializer
+            'L2', # regularizer
+            0.001, True, True,
+            False,  # Reuse
+        ]
         logits = tflearn.layers.core.time_distributed(
             output, tflearn.layers.core.fully_connected,
-            args=[self.dataset.classes_num()],
+            args=fully_connected_args,
             scope='softmax_layer')  # [batch_size, max_num_steps, classes_num]
         # logits is now a tensor [batch_size, max_num_steps, classes_num]
-
         return logits
 
     def _build_state_variables(self, cell):
         # Get the initial state and make a variable out of it
         # to enable updating its value.
         state_c, state_h = cell.zero_state(self.batch_size, tf.float32)
-        return tf.contrib.rnn.LSTMStateTuple(
+        return (tf.contrib.rnn.LSTMStateTuple(
             tf.Variable(state_c, trainable=False),
-            tf.Variable(state_h, trainable=False))
+            tf.Variable(state_h, trainable=False)))
 
     @staticmethod
     def _get_state_update_op(state_variables, new_state):
@@ -281,16 +306,15 @@ class SeqPredictionModel(LSTMModel):
         assert self.labels_placeholder.get_shape()[1] == logits_shape[1]
         # Calculate the cross entropy for the prediction of each step.
         # The (binary) cross entropy is defined as
-        # -\sum_{x \in {a, b}} p(x) log(q)
+        # -\sum_{x \in {a, b}} p(x) log(q(x))
         # We want to compare the true label against the predicted probability
         # of that label
-        logits = tf.log(tf.nn.softmax(logits))
+        logits = tf.log(tf.nn.sigmoid(logits))
 
         cross_entropy = -tf.multiply(
             logits, tf.cast(self.labels_placeholder, dtype=logits.dtype))
         # cross_entropy has shape [batch_size, max_num_steps, classes_num] but
         # has only one active record per element of each sequence
-
         # Now we sum over all classes.
         cross_entropy = tf.reduce_sum(cross_entropy, axis=2)
         cross_entropy = tf.multiply(cross_entropy, tf.sequence_mask(
@@ -300,8 +324,8 @@ class SeqPredictionModel(LSTMModel):
         # Remove the elements that are not part of the sequence.
         # We take the average cross entropy of each sequence, taking into
         # consideration the lenght of the sequence.
-        cross_entropy = (tf.reduce_sum(cross_entropy, axis=1) /
-                         tf.to_float(self.lengths_placeholder))
+        cross_entropy = _safe_div(tf.reduce_sum(cross_entropy, axis=1),
+                                  tf.to_float(self.lengths_placeholder))
         # cross_entropy now has shape [batch_size, ]
 
         # Finally, we take the average over all examples in batch.
@@ -314,10 +338,11 @@ class SeqPredictionModel(LSTMModel):
         # max_steps size
         loss_value = []
         for feed_dict in self._fill_feed_dict(partition_name):
-            _, _, step_loss_value = self.sess.run(
+            result = self.sess.run(
                 [train_op, self.last_state_op, loss], feed_dict=feed_dict)
-            loss_value.append(step_loss_value)
-
+            loss_value.append(result[2])
+        if self.logs_dirname is not None and epoch % 10 is 0:
+            self.write_summary(epoch, feed_dict)
         return numpy.mean(loss_value)
 
     def _fill_feed_dict(self, partition_name='train', reshuffle=True):

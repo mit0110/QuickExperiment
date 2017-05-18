@@ -559,7 +559,8 @@ class SequenceDataset(SimpleSampledDataset):
         return padded_batch, batch_labels, lengths
 
     def next_batch(self, batch_size, partition_name='train',
-                   pad_sequences=True, max_sequence_length=None, reshuffle=True):
+                   pad_sequences=True, max_sequence_length=None,
+                   reshuffle=True):
         """Generates batches of instances and labels from a partition.
 
         If the size of the partition is exceeded, the partition and the labels
@@ -582,9 +583,11 @@ class SequenceDataset(SimpleSampledDataset):
             return result
         instances, labels = result
         # Convert instances to dense if they are sparse
-        if isinstance(instances[0], sparse.csr_matrix):
+        if sparse.issparse(instances[0]):
             instances = numpy.array([instance.todense()
                                      for instance in instances])
+        if sparse.issparse(labels[0]):
+            labels = numpy.array([label.todense() for label in labels])
         if pad_sequences:
             return self._pad_batch(instances, labels, max_sequence_length)
         return instances, labels, self._get_sequence_lengths(instances)
@@ -608,11 +611,13 @@ class LabeledSequenceDataset(SequenceDataset):
             A tuple with the padded batch and the original lengths.
         """
         lengths = self._get_sequence_lengths(batch_instances)
-        if max_sequence_length is not None:
-            max_length = ((lengths.max() / max_sequence_length + 1) *
+        longest_sequence = lengths.max()
+        if (max_sequence_length is not None and
+                longest_sequence % max_sequence_length != 0):
+            max_length = (int(lengths.max() / max_sequence_length + 1) *
                           max_sequence_length)
         else:
-            max_length = lengths.max()
+            max_length = longest_sequence
         padded_batch = numpy.zeros((batch_instances.shape[0], max_length,
                                     self.feature_vector_size))
         padded_labels = numpy.zeros((batch_instances.shape[0], max_length,
