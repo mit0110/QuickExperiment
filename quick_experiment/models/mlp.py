@@ -207,10 +207,10 @@ class MLPModel(BaseModel):
                     print 'Classifier loss at step {} ({:.2f}s): {}'.format(
                         epoch, end_time - start_time, loss_value
                     )
-                    accuracy = self.evaluate_validation(correct_predictions)
+                    performance = self.evaluate_validation(correct_predictions)
                     if self.logs_dirname is not None:
-                        tf.summary.scalar('validation accuracy', accuracy)
-                    print 'Validation accuracy {}'.format(accuracy)
+                        tf.summary.scalar('validation performance', performance)
+                    print 'Validation performance {}'.format(performance)
 
         if close_session:
             self.sess.close()
