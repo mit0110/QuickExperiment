@@ -266,5 +266,5 @@ class MLPModel(BaseModel):
                 true.append(labels_batch)
                 batch = self.dataset.next_batch(self.batch_size, 'validation',
                                                 reshuffle=False)
-        return numpy.array(predictions), numpy.concatenate(true)
+        return numpy.concatenate(true), numpy.array(predictions)
 

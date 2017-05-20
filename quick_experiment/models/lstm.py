@@ -200,7 +200,7 @@ class LSTMModel(MLPModel):
                 true.append(feed_dict[self.labels_placeholder])
                 feed_dict = self._fill_feed_dict(partition_name,
                                                  reshuffle=False)
-        return numpy.array(predictions), numpy.concatenate(true)
+        return numpy.concatenate(true), numpy.array(predictions)
 
     def evaluate_validation(self, correct_predictions):
         true_count = 0
@@ -383,6 +383,31 @@ class SeqPredictionModel(LSTMModel):
         }
         return feed_dict
 
+    def _build_predictions(self, logits):
+        """Return a tensor with the predicted class for each instance.
+
+        Args:
+            logits: Logits tensor, float - [batch_size, max_num_steps,
+                NUM_CLASSES].
+
+        Returns:
+            A float64 tensor with the predictions, with shape [batch_size,
+            max_num_steps].
+        """
+        # Variable to store the predictions. The prediction for each element
+        # is a vector with the most likely next
+        # observed element in the sequence.
+        return tf.argmax(logits, -1, name='batch_predictions')
+
+    def _get_step_predictions(self, batch_prediction, batch_true, feed_dict):
+        step_prediction = self.sess.run(self.predictions, feed_dict=feed_dict)
+        labels = numpy.argmax(feed_dict[self.labels_placeholder], axis=-1)
+        for index, length in enumerate(feed_dict[self.lengths_placeholder]):
+            batch_prediction[index] = numpy.append(
+                batch_prediction[index], step_prediction[index, :length])
+            batch_true[index] = numpy.append(
+                batch_true[index], labels[index, :length])
+
     def predict(self, partition_name):
         predictions = []
         true = []
@@ -399,32 +424,7 @@ class SeqPredictionModel(LSTMModel):
                 predictions.extend(batch_prediction)
                 true.extend(batch_true)
 
-        return numpy.array(predictions), numpy.array(true)
-
-    def _get_step_predictions(self, batch_prediction, batch_true, feed_dict):
-        step_prediction = self.sess.run(self.predictions, feed_dict=feed_dict)
-        labels = numpy.argmax(feed_dict[self.labels_placeholder], axis=-1)
-        for index, length in enumerate(feed_dict[self.lengths_placeholder]):
-            batch_prediction[index] = numpy.append(
-                batch_prediction[index], step_prediction[index, :length])
-            batch_true[index] = numpy.append(
-                batch_true[index], labels[index, :length])
-
-    def _build_predictions(self, logits):
-        """Return a tensor with the predicted class for each instance.
-
-        Args:
-            logits: Logits tensor, float - [batch_size, max_num_steps,
-                NUM_CLASSES (feature_vector_size + 1)].
-
-        Returns:
-            A float64 tensor with the predictions, with shape [batch_size,
-            max_num_steps].
-        """
-        # Variable to store the predictions. The prediction for each element
-        # is a vector with the most likely next
-        # observed element in the sequence.
-        return tf.argmax(logits, -1, name='batch_predictions')
+        return numpy.array(true), numpy.array(predictions)
 
     def _build_evaluation(self, logits):
         """Evaluate the quality of the logits at predicting the label.
@@ -456,9 +456,10 @@ class SeqPredictionModel(LSTMModel):
                        if i.name.split('/')[0] == 'evaluation_accuracy']
         accuracy_op, accuracy_update_op = correct_predictions
         self.dataset.reset_batch()
+        accuracy = None
         while self.dataset.has_next_batch(self.batch_size, partition):
             for feed_dict in self._fill_feed_dict(partition, reshuffle=False):
                 self.sess.run([accuracy_update_op], feed_dict=feed_dict)
-                accuracy = self.sess.run([accuracy_op])
+            accuracy = self.sess.run([accuracy_op])[0]
         self.sess.run([tf.variables_initializer(stream_vars)])
-        return accuracy[0]
+        return accuracy

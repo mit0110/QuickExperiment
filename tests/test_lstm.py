@@ -273,7 +273,7 @@ class SeqPredictionModelTest(unittest.TestCase):
         """Test the prediction for each sequence element is the probability
         of the next element in sequence, for all possible elements."""
         self.model.fit(close_session=False)
-        predictions, true = self.model.predict('test')
+        true, predictions = self.model.predict('test')
         self.assertIsInstance(predictions, numpy.ndarray)
         for true_sequence, predicted_sequence in zip(true, predictions):
             self.assertEqual(true_sequence.shape[0],
