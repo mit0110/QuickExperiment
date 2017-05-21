@@ -79,21 +79,16 @@ class SeqLSTMModel(LSTMModel):
 
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
-        # The recurrent layer
         output = self._build_recurrent_layer()
         # outputs is a Tensor shaped
         # [batch_size, max_num_steps, hidden_size].
 
         # The last layer is for the classifier
-        fully_connected_args = [
-            self.dataset.classes_num(), 'linear', True,
-            'truncated_normal', 'zeros', # weights and bias initializer
-            'L2', # regularizer
-            0.001, True, True,
-            False,  # Reuse
-        ]
         layer_args = {
-            'num_outputs': self.dataset.classes_num(),
+            'num_outputs': self.dataset.classes_num(), 'activation_fn': tf.nn.softmax,
+            'weights_initializer': tf.uniform_unit_scaling_initializer(),
+            'weights_regularizer': tf.contrib.layers.l2_regularizer(1e-5),
+            'biases_regularizer': tf.contrib.layers.l2_regularizer(1e-5)
         }
         logits = time_distributed(output, tf.contrib.layers.fully_connected,
                                   layer_args)
@@ -150,7 +145,7 @@ class SeqLSTMModel(LSTMModel):
         # -\sum_{x \in {a, b}} p(x) log(q(x))
         # We want to compare the true label against the predicted probability
         # of that label
-        logits = tf.log(tf.nn.sigmoid(logits))
+        logits = tf.log(logits)
 
         cross_entropy = -tf.multiply(
             logits, tf.cast(self.labels_placeholder, dtype=logits.dtype))
