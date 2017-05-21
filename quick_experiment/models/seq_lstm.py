@@ -1,7 +1,6 @@
 """Model for sequence prediction with a LSTM RNN."""
 import numpy
 import tensorflow as tf
-import tflearn
 
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
@@ -46,10 +45,10 @@ def time_distributed(incoming, fn, args=None):
                        for i in range(1, timestep)])
     try:
         x = map(lambda t: tf.reshape(
-            t, [-1, 1]+tflearn.utils.get_incoming_shape(t)[1:]), result)
+            t, [-1, 1]+t.get_shape().as_list()[1:]), result)
     except:
         x = list(map(lambda t: tf.reshape(
-            t, [-1, 1]+tflearn.utils.get_incoming_shape(t)[1:]), result))
+            t, [-1, 1]+t.get_shape().as_list()[1:]), result))
     return tf.concat(x, 1)
 
 
