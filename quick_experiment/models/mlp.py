@@ -266,3 +266,16 @@ class MLPModel(BaseModel):
                                                 reshuffle=False)
         return numpy.concatenate(true), numpy.array(predictions)
 
+    def count_trainable_parameters(self):
+        with self.graph.as_default():
+            total_parameters = 0
+            for variable in tf.trainable_variables():
+                # shape is an array of tf.Dimension
+                shape = variable.get_shape()
+                print(variable.name)
+                print(shape)
+                variable_parametes = 1
+                for dim in shape:
+                    variable_parametes *= dim.value
+                total_parameters += variable_parametes
+            print(total_parameters)
