@@ -80,39 +80,8 @@ class SeqLSTMModelTest(unittest.TestCase):
                 self.assertFalse(numpy.isnan(loss_value),
                                  msg='The loss value is nan.')
 
-    def test_build_loss(self):
-        """Test if the loss (binary cross entropy) is built correctly."""
-        with tf.Graph().as_default():
-            # outputs is a Tensor shaped
-            # [batch_size, max_num_steps, hidden_size].
-            logits = tf.random_uniform(
-                (self.model_arguments['batch_size'], self.max_num_steps,
-                 self.dataset.classes_num('train')))
-            self.model._build_inputs()
-            loss = self.model._build_loss(logits)
-            sigmoid = tf.nn.sigmoid(logits)
-            init = tf.global_variables_initializer()
-            sess = tf.Session()
-            sess.run(init)
-            feed_dict = self.model._fill_feed_dict('train').next()
-            sigmoid, result = sess.run([sigmoid, loss], feed_dict=feed_dict)
-            sess.close()
-        # Calculate loss
-        expected_loss = []
-        for index, sequence in enumerate(
-                feed_dict[self.model.labels_placeholder]):
-            sequence_loss = []
-            for element_index in range(
-                    feed_dict[self.model.lengths_placeholder][index]):
-                correct_label = sequence[element_index]
-                sequence_loss.append(-1 * numpy.log(numpy.sum(
-                    sigmoid[index, element_index] * correct_label)))
-            expected_loss.append(numpy.mean(sequence_loss))
-        expected_loss = numpy.mean(expected_loss)
-
-        self.assertAlmostEqual(expected_loss, result, places=6)
-
-    def _get_correctly_predicted(self, labels, lengths, logit_labels):
+    @staticmethod
+    def _get_correctly_predicted(labels, lengths, logit_labels):
         total_correct = 0
         for sequence_index, sequence in enumerate(labels):
             for label_index, true_label_vector in enumerate(
@@ -138,7 +107,7 @@ class SeqLSTMModelTest(unittest.TestCase):
             for iteration in range(iterations):
                 feed_dict = self.model._fill_feed_dict('train').next()
                 logits_ev, _ = sess.run([logits, accuracy_update_op],
-                                                   feed_dict=feed_dict)
+                                        feed_dict=feed_dict)
                 labels = feed_dict[self.model.labels_placeholder]
                 lengths = feed_dict[self.model.lengths_placeholder]
                 logit_labels = numpy.argmax(logits_ev, axis=-1)

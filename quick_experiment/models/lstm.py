@@ -86,7 +86,7 @@ class LSTMModel(MLPModel):
                 weights_regularizer=tf.contrib.layers.l2_regularizer,
                 biases_initializer=tf.zeros_initializer(),
                 biases_regularizer=tf.contrib.layers.l2_regularizer,
-                reuse=True, trainable=True, scope=scope
+                trainable=True, scope=scope
             )
         return logits
 
