@@ -119,13 +119,6 @@ class LSTMModel(MLPModel):
             tf.summary.scalar(variable.name + "/gradients",
                               tf.reduce_sum(grad_values))
 
-    def _clip_gradients(self, gradients):
-        result = []
-        for g, v in gradients:
-            if g is not None:
-                result.append((tf.clip_by_value(g, -1., 1.), v))
-        return result
-
     def _build_train_operation(self, loss):
         if self.logs_dirname is not None:
             tf.summary.scalar('loss', loss)
@@ -133,7 +126,6 @@ class LSTMModel(MLPModel):
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         gradients = optimizer.compute_gradients(loss)
-        gradients = self._clip_gradients(gradients)
         self.log_gradients(gradients)
         return optimizer.apply_gradients(gradients, global_step=global_step)
 

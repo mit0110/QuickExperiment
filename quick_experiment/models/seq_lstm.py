@@ -85,7 +85,7 @@ class SeqLSTMModel(LSTMModel):
 
         # The last layer is for the classifier
         layer_args = {
-            'num_outputs': self.dataset.classes_num(), 'activation_fn': tf.nn.softmax,
+            'num_outputs': self.dataset.classes_num(), 'activation_fn': None,
             'weights_initializer': tf.uniform_unit_scaling_initializer(),
             'weights_regularizer': tf.contrib.layers.l2_regularizer(1e-5),
             'biases_regularizer': tf.contrib.layers.l2_regularizer(1e-5)
@@ -138,34 +138,13 @@ class SeqLSTMModel(LSTMModel):
         Args:
             logits: Tensor - [batch_size, max_num_steps, classes_num]
         """
-        logits_shape = logits.get_shape()
-        assert self.labels_placeholder.get_shape()[1] == logits_shape[1]
-        # Calculate the cross entropy for the prediction of each step.
-        # The (binary) cross entropy is defined as
-        # -\sum_{x \in {a, b}} p(x) log(q(x))
-        # We want to compare the true label against the predicted probability
-        # of that label
-        logits = tf.log(logits)
-
-        cross_entropy = -tf.multiply(
-            logits, tf.cast(self.labels_placeholder, dtype=logits.dtype))
-        # cross_entropy has shape [batch_size, max_num_steps, classes_num] but
-        # has only one active record per element of each sequence
-        # Now we sum over all classes.
-        cross_entropy = tf.reduce_sum(cross_entropy, axis=2)
-        cross_entropy = tf.multiply(cross_entropy, tf.sequence_mask(
-            self.lengths_placeholder, logits_shape[1], dtype=logits.dtype))
-        # cross_entropy has shape [batch_size, max_num_steps]
-
-        # Remove the elements that are not part of the sequence.
-        # We take the average cross entropy of each sequence, taking into
-        # consideration the lenght of the sequence.
-        cross_entropy = _safe_div(tf.reduce_sum(cross_entropy, axis=1),
-                                  tf.to_float(self.lengths_placeholder))
-        # cross_entropy now has shape [batch_size, ]
-
-        # Finally, we take the average over all examples in batch.
-        return tf.reduce_mean(cross_entropy)
+        mask = tf.sequence_mask(self.lengths_placeholder, self.max_num_steps)
+        loss = tf.nn.softmax_cross_entropy_with_logits(
+            logits=logits, labels=self.labels_placeholder)
+        loss = tf.div(
+            tf.reduce_sum(tf.boolean_mask(loss, mask)),
+            tf.cast(tf.reduce_sum(self.lengths_placeholder), loss.dtype))
+        return loss
 
     def run_train_op(self, epoch, loss, partition_name, train_op):
         # Reset the neural_network_value
@@ -173,11 +152,12 @@ class SeqLSTMModel(LSTMModel):
         # We need to run the train op cutting the sequence in chunks of
         # max_steps size
         loss_value = []
+        feed_dict = None
         for feed_dict in self._fill_feed_dict(partition_name):
             result = self.sess.run(
                 [train_op, self.last_state_op, loss], feed_dict=feed_dict)
             loss_value.append(result[2])
-        if self.logs_dirname is not None and epoch % 10 is 0:
+        if self.logs_dirname is not None and epoch % 10 is 0 and feed_dict:
             self.write_summary(epoch, feed_dict)
         return numpy.mean(loss_value)
 
