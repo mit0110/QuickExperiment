@@ -208,8 +208,6 @@ class MLPModel(BaseModel):
                         epoch, end_time - start_time, loss_value
                     )
                     performance = self.evaluate_validation(correct_predictions)
-                    if self.logs_dirname is not None:
-                        tf.summary.scalar('validation performance', performance)
                     print 'Validation performance {}'.format(performance)
 
         if close_session:
