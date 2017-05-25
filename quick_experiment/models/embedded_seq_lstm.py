@@ -13,11 +13,12 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
     """
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
                  training_epochs=1000, logs_dirname='.', log_values=True,
-                 max_num_steps=30, embedding_size=200, **kwargs):
+                 max_num_steps=30, embedding_size=200, dropout_ratio=0.3,
+                 **kwargs):
         super(EmbeddedSeqLSTMModel, self).__init__(
             dataset, batch_size=batch_size, training_epochs=training_epochs,
             logs_dirname=logs_dirname, name=name, log_values=log_values,
-            **kwargs)
+            dropout_ratio=dropout_ratio, **kwargs)
         self.embedding_size = embedding_size
         self.output_size = embedding_size
 
@@ -47,7 +48,7 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             max_norm=1)
         return tf.add_n([embedded_element, embedded_outcome])
 
-    def _build_embedding_layer(self):
+    def _build_input_layers(self):
         with tf.name_scope('embedding_layer') as scope:
             self.element_embeddings = tf.concat([
                 tf.zeros([1, self.embedding_size]),
@@ -58,31 +59,10 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
                 tf.Variable(tf.random_uniform([self.dataset.feature_vector_size,
                                                self.embedding_size], 0, 1.0),
                             trainable=True)], 0, name="positive_embedding")
-            return self._get_embedding(self.instances_placeholder)
-
-    def _build_recurrent_layer(self):
-        # The recurrent layer
-        embedded_input = self._build_embedding_layer()
-        print embedded_input.shape
-        rnn_cell = tf.contrib.rnn.BasicLSTMCell(
-            self.hidden_layer_size, forget_bias=1.0)
-        with tf.name_scope('recurrent_layer') as scope:
-            # Get the initial state. States will be a LSTMStateTuples.
-            state_variable = self._build_state_variables(rnn_cell)
-            # outputs is a Tensor shaped [batch_size, max_time,
-            # cell.output_size].
-            # State is a Tensor shaped [batch_size, cell.state_size]
-            outputs, new_state = tf.nn.dynamic_rnn(
-                rnn_cell, inputs=embedded_input,
-                sequence_length=self.lengths_placeholder, scope=scope,
-                initial_state=state_variable)
-            # Define the state operations. This wont execute now.
-            self.last_state_op = self._get_state_update_op(state_variable,
-                                                           new_state)
-            self.reset_state_op = self._get_state_update_op(
-                state_variable,
-                rnn_cell.zero_state(self.batch_size, tf.float32))
-        return outputs
+            input = self._get_embedding(self.instances_placeholder)
+            if self.dropout_ratio != 0:
+                return tf.layers.dropout(inputs=input, rate=self.dropout_ratio)
+            return input
 
     def _build_loss(self, logits):
         """Calculates the average binary cross entropy.

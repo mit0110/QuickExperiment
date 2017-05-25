@@ -60,11 +60,12 @@ class SeqLSTMModel(LSTMModel):
 
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
                  training_epochs=1000, logs_dirname='.', log_values=True,
-                 max_num_steps=30, **kwargs):
+                 max_num_steps=30, dropout_ratio=0.3, **kwargs):
         super(SeqLSTMModel, self).__init__(
             dataset, name, hidden_layer_size, batch_size, training_epochs,
             logs_dirname, log_values, max_num_steps, **kwargs)
         self.output_size = self.dataset.classes_num()
+        self.dropout_ratio = dropout_ratio
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -118,8 +119,16 @@ class SeqLSTMModel(LSTMModel):
         return (state_variables[0].assign(new_state[0]),
                 state_variables[1].assign(new_state[1]))
 
+    def _build_input_layers(self):
+        """Applies a dropout to the input instances"""
+        if self.dropout_ratio != 0:
+            return tf.layers.dropout(inputs=self.instances_placeholder,
+                                     rate=self.dropout_ratio)
+        return self.instances_placeholder
+
     def _build_recurrent_layer(self):
         # The recurrent layer
+        input = self._build_input_layers()
         rnn_cell = tf.contrib.rnn.BasicLSTMCell(
             self.hidden_layer_size, forget_bias=1.0)
         with tf.name_scope('recurrent_layer') as scope:
@@ -129,7 +138,7 @@ class SeqLSTMModel(LSTMModel):
             # cell.output_size].
             # State is a Tensor shaped [batch_size, cell.state_size]
             outputs, new_state = tf.nn.dynamic_rnn(
-                rnn_cell, inputs=self.instances_placeholder,
+                rnn_cell, inputs=input,
                 sequence_length=self.lengths_placeholder, scope=scope,
                 initial_state=state_variable)
             # Define the state operations. This wont execute now.
