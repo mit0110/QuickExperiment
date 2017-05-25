@@ -121,8 +121,8 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
         """
         logits = tf.nn.sigmoid(logits)
         labels = self._get_embedding(self.labels_placeholder)
-        predictions = tf.norm(tf.subtract(labels, logits), ord=2,
-                              name='batch_predictions', axis=-1)
+        predictions = 1 - tf.norm(tf.subtract(labels, logits), ord=2,
+                                  name='batch_predictions', axis=-1)
         return predictions
 
     def _get_step_predictions(self, batch_prediction, batch_true, feed_dict):
@@ -155,8 +155,28 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             true_labels = tf.clip_by_value(
                 tf.cast(tf.sign(self.labels_placeholder), predictions.dtype),
                 clip_value_min=0, clip_value_max=1)
-            print predictions, true_labels
             r2, r2_update = tf.contrib.metrics.streaming_pearson_correlation(
                 predictions, true_labels, weights=mask)
 
         return r2, r2_update
+
+
+class EmbeddedSeqLSTMModel2(EmbeddedSeqLSTMModel):
+    """Same model as before but with different loss."""
+
+    def _build_loss(self, logits):
+        """Calculates the average binary cross entropy.
+
+        Args:
+            logits: Tensor - [batch_size, max_num_steps, embedding_size]
+        """
+        logits = tf.sigmoid(logits)
+        labels = self._get_embedding(self.labels_placeholder)
+        label_outcomes = tf.cast(tf.sign(self.labels_placeholder), logits.dtype)
+        loss = tf.multiply(tf.subtract(labels, logits), label_outcomes,
+                           name='loss')
+        mask = tf.sequence_mask(
+            self.lengths_placeholder, maxlen=self.max_num_steps)
+
+        loss = tf.reduce_mean(tf.boolean_mask(loss, mask))
+        return loss
