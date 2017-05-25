@@ -29,7 +29,7 @@ class MLPModel(BaseModel):
 
     def __init__(self, dataset, name=None, hidden_layers=[], batch_size=None,
                  training_epochs=1000, logs_dirname='.', log_values=True,
-                 learning_rate=0.001, checkpoint_dirname=None, **kwargs):
+                 learning_rate=0.001, **kwargs):
         super(MLPModel, self).__init__(dataset, **kwargs)
         self.hidden_layers_sizes = hidden_layers
 
@@ -45,7 +45,6 @@ class MLPModel(BaseModel):
                 self.logs_dirname = os.path.join(logs_dirname, name)
             utils.safe_mkdir(self.logs_dirname)
         self.log_values = log_values
-        self.checkpoint_dirname = checkpoint_dirname
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors.
@@ -211,9 +210,9 @@ class MLPModel(BaseModel):
                     performance = self.evaluate_validation(correct_predictions)
                     print 'Validation performance {}'.format(performance)
 
-        if self.checkpoint_dirname is not None:
+        if self.logs_dirname is not None:
             self.saver.save(
-                self.sess, os.path.join(self.checkpoint_dirname, "model.ckpt"),
+                self.sess, os.path.join(self.logs_dirname, "model.ckpt"),
                 0)
 
         if close_session:
