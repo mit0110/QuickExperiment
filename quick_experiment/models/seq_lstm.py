@@ -9,7 +9,7 @@ from quick_experiment.models.lstm import LSTMModel
 
 
 # Copied from tensorflow github.
-def _safe_div(numerator, denominator, name="value"):
+def safe_div(numerator, denominator, name="value"):
     """Computes a safe divide which returns 0 if the denominator is zero.
     Note that the function contains an additional conditional check that is
     necessary for avoiding situations where the loss is zero causing NaNs to
@@ -58,6 +58,14 @@ class SeqLSTMModel(LSTMModel):
     Predicts the probability of the next element on the sequence.
     """
 
+    def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
+                 training_epochs=1000, logs_dirname='.', log_values=True,
+                 max_num_steps=30, **kwargs):
+        super(SeqLSTMModel, self).__init__(
+            dataset, name, hidden_layer_size, batch_size, training_epochs,
+            logs_dirname, log_values, max_num_steps, **kwargs)
+        self.output_size = self.dataset.classes_num()
+
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
         # Placeholder for the inputs in a given iteration.
@@ -85,7 +93,7 @@ class SeqLSTMModel(LSTMModel):
 
         # The last layer is for the classifier
         layer_args = {
-            'num_outputs': self.dataset.classes_num(), 'activation_fn': None,
+            'num_outputs': self.output_size, 'activation_fn': None,
             'weights_initializer': tf.uniform_unit_scaling_initializer(),
             'weights_regularizer': tf.contrib.layers.l2_regularizer(1e-5),
             'biases_regularizer': tf.contrib.layers.l2_regularizer(1e-5)
@@ -254,7 +262,7 @@ class SeqLSTMModel(LSTMModel):
         """
         predictions = self._build_predictions(logits)
         # predictions has shape [batch_size, max_num_steps]
-        with tf.name_scope('evaluation_accuracy'):
+        with tf.name_scope('evaluation_performance'):
             mask = tf.sequence_mask(
                 self.lengths_placeholder, maxlen=self.max_num_steps,
                 dtype=predictions.dtype)
@@ -269,7 +277,7 @@ class SeqLSTMModel(LSTMModel):
         partition = 'validation'
         # Reset the accuracy variables
         stream_vars = [i for i in tf.local_variables()
-                       if i.name.split('/')[0] == 'evaluation_accuracy']
+                       if i.name.split('/')[0] == 'evaluation_performance']
         accuracy_op, accuracy_update_op = correct_predictions
         self.dataset.reset_batch()
         accuracy = None

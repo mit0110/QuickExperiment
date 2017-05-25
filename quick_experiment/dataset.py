@@ -702,3 +702,52 @@ class UnlabeledSequenceDataset(LabeledSequenceDataset):
             instances, None, samples_num, partition_sizes, use_numeric_labels)
         self._labels = self._get_labels()
 
+
+class EmbeddedSequenceDataset(LabeledSequenceDataset):
+
+    def __init__(self):
+        super(EmbeddedSequenceDataset, self).__init__()
+        self._classes_num = None
+        self._feature_vector_size = None
+
+    def classes_num(self, _=None):
+        if self._classes_num is None:
+            self._classes_num = numpy.max([numpy.max(x) for x in self._labels])
+        return self._classes_num
+
+    @property
+    def feature_vector_size(self):
+        if self._feature_vector_size is None:
+            self._feature_vector_size = numpy.max([
+                numpy.max(x) for x in self._instances]) + 2
+        return self._feature_vector_size
+
+    def _pad_batch(self, batch_instances, batch_labels,
+                   max_sequence_length=None):
+        """Pad sequences with 0 to the length of the longer sequence in the
+        batch or a multiple of max_sequence_length.
+
+        Args:
+            batch_instances: a list of sequences of size batch_size. Each
+                sequence is a matrix.
+            batch_labels: a list of sequence labels of size batch_size. Each
+                label is a vector.
+            max_sequence_length (int): the maximum sequence lenght or None
+
+        Returns:
+            A tuple with the padded batch and the original lengths.
+        """
+        lengths = self._get_sequence_lengths(batch_instances)
+        longest_sequence = lengths.max()
+        if (max_sequence_length is not None and
+                longest_sequence % max_sequence_length != 0):
+            max_length = (int(lengths.max() / max_sequence_length + 1) *
+                          max_sequence_length)
+        else:
+            max_length = longest_sequence
+        padded_batch = numpy.zeros((batch_instances.shape[0], max_length))
+        padded_labels = numpy.zeros((batch_instances.shape[0], max_length))
+        for index, sequence in enumerate(batch_instances):
+            padded_batch[index, :lengths[index]] = sequence
+            padded_labels[index, :lengths[index]] = batch_labels[index]
+        return padded_batch, padded_labels, lengths
