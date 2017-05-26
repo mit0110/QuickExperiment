@@ -35,11 +35,13 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             tf.int32, (None, self.max_num_steps),
             name='labels_placeholder')
 
-    def _get_embedding(self, element_ids):
+    def _get_embedding(self, element_ids, element_only=False):
         """Returns self.element_embeddings + self.positive_embeddings if
         the element is positive, and self.element_embedding is is negative."""
         embedded_element = tf.nn.embedding_lookup(
             self.element_embeddings, tf.abs(element_ids), max_norm=1)
+        if element_only:
+            return embedded_element
         embedded_outcome = tf.nn.embedding_lookup(
             self.positive_embedding,
             tf.clip_by_value(element_ids, clip_value_min=0,
@@ -91,7 +93,6 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             logits: Tensor - [batch_size, max_num_steps, embedding_size]
         """
         logits = tf.sigmoid(logits)
-        print logits
         labels = self._get_embedding(self.labels_placeholder)
         loss = tf.reduce_mean(
             tf.losses.mean_squared_error(predictions=logits, labels=labels,
@@ -120,8 +121,8 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             max_num_steps].
         """
         logits = tf.nn.sigmoid(logits)
-        labels = self._get_embedding(self.labels_placeholder)
-        predictions = 1 - tf.norm(tf.subtract(labels, logits), ord=2,
+        labels = self._get_embedding(self.labels_placeholder, element_only=True)
+        predictions = tf.norm(tf.subtract(labels, logits), ord=2,
                                   name='batch_predictions', axis=-1)
         return predictions
 
@@ -171,12 +172,18 @@ class EmbeddedSeqLSTMModel2(EmbeddedSeqLSTMModel):
             logits: Tensor - [batch_size, max_num_steps, embedding_size]
         """
         logits = tf.sigmoid(logits)
-        labels = self._get_embedding(self.labels_placeholder)
+        labels = self._get_embedding(self.labels_placeholder, element_only=True)
         label_outcomes = tf.cast(tf.sign(self.labels_placeholder), logits.dtype)
-        loss = tf.multiply(tf.subtract(labels, logits), label_outcomes,
-                           name='loss')
+        # if the outcome is positive (the exercise was solved), logits is
+        # bigger than the embedding of the next exercise.
+        # if the outcome is negative, logits is smaller than the embeddegin of
+        # the next exercise. 
+        loss = tf.multiply(tf.reduce_sum(tf.subtract(logits, labels), axis=2),
+                           label_outcomes)
+        loss = tf.clip_by_value(loss, clip_value_min=0, clip_value_max=1)
         mask = tf.sequence_mask(
             self.lengths_placeholder, maxlen=self.max_num_steps)
 
-        loss = tf.reduce_mean(tf.boolean_mask(loss, mask))
+        loss = tf.reduce_mean(tf.boolean_mask(loss, mask), name='loss')
         return loss
+
