@@ -18,7 +18,8 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
         super(EmbeddedSeqLSTMModel, self).__init__(
             dataset, batch_size=batch_size, training_epochs=training_epochs,
             logs_dirname=logs_dirname, name=name, log_values=log_values,
-            dropout_ratio=dropout_ratio, **kwargs)
+            dropout_ratio=dropout_ratio, hidden_layer_size=hidden_layer_size,
+            max_num_steps=max_num_steps, **kwargs)
         self.embedding_size = embedding_size
         self.output_size = embedding_size
 
@@ -40,14 +41,13 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
         """Returns self.element_embeddings + self.positive_embeddings if
         the element is positive, and self.element_embedding is is negative."""
         embedded_element = tf.nn.embedding_lookup(
-            self.element_embeddings, tf.abs(element_ids), max_norm=1)
+            self.element_embeddings, tf.abs(element_ids))
         if element_only:
             return embedded_element
         embedded_outcome = tf.nn.embedding_lookup(
             self.positive_embedding,
             tf.clip_by_value(element_ids, clip_value_min=0,
-                             clip_value_max=self.dataset.feature_vector_size),
-            max_norm=1)
+                             clip_value_max=self.dataset.feature_vector_size))
         return tf.add_n([embedded_element, embedded_outcome])
 
     def _build_input_layers(self):
@@ -102,8 +102,8 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
         """
         logits = tf.nn.sigmoid(logits)
         labels = self._get_embedding(self.labels_placeholder, element_only=True)
-        predictions = tf.norm(tf.subtract(labels, logits), ord=2,
-                                  name='batch_predictions', axis=-1)
+        predictions = tf.sigmoid(tf.norm(tf.subtract(labels, logits), ord=2,
+                                         name='batch_predictions', axis=-1))
         return predictions
 
     def _get_step_predictions(self, batch_prediction, batch_true, feed_dict):
