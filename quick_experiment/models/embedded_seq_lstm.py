@@ -127,6 +127,7 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             batch_size) that were predicted correctly.
         """
         predictions = self._build_predictions(logits)
+        print predictions
         # predictions has shape [batch_size, max_num_steps]
         with tf.name_scope('evaluation_r2'):
             mask = tf.sequence_mask(
@@ -160,10 +161,29 @@ class EmbeddedSeqLSTMModel2(EmbeddedSeqLSTMModel):
         # the next exercise. 
         loss = tf.multiply(tf.reduce_sum(tf.subtract(logits, labels), axis=2),
                            label_outcomes)
-        loss = tf.clip_by_value(loss, clip_value_min=0, clip_value_max=1)
         mask = tf.sequence_mask(
             self.lengths_placeholder, maxlen=self.max_num_steps)
 
-        loss = tf.reduce_mean(tf.boolean_mask(loss, mask), name='loss')
+        loss = tf.reduce_mean(tf.sigmoid(tf.boolean_mask(loss, mask)),
+                              name='loss')
         return loss
 
+    def _build_predictions(self, logits):
+        """Return a tensor with the predicted probability for each instance.
+
+        The probability is the norm of the distance between the softmax of the
+        logits and the embedding of the true label.
+
+        Args:
+            logits: Logits tensor, float - [batch_size, max_num_steps,
+                embedding_size].
+
+        Returns:
+            A float64 tensor with the predictions, with shape [batch_size,
+            max_num_steps].
+        """
+        logits = tf.nn.sigmoid(logits)
+        labels = self._get_embedding(self.labels_placeholder, element_only=True)
+        predictions = 1 - tf.sigmoid(tf.reduce_sum(tf.subtract(labels, logits),
+                                                   axis=-1))
+        return predictions
