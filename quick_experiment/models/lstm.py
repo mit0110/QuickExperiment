@@ -126,7 +126,7 @@ class LSTMModel(MLPModel):
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         gradients = optimizer.compute_gradients(loss)
-        self.log_gradients(gradients)
+        # self.log_gradients(gradients)
         return optimizer.apply_gradients(gradients, global_step=global_step)
 
     def _fill_feed_dict(self, partition_name='train', reshuffle=True):

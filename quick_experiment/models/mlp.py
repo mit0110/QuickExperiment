@@ -192,7 +192,7 @@ class MLPModel(BaseModel):
             if self.logs_dirname is not None:
                 # Instantiate a SummaryWriter to output summaries and the Graph.
                 self.summary_writer = tf.summary.FileWriter(self.logs_dirname,
-                                                       self.sess.graph)
+                                                            self.sess.graph)
             self.sess.run([init, init_local])
 
             # Run the training loop

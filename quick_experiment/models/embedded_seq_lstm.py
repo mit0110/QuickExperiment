@@ -21,10 +21,13 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             dropout_ratio=dropout_ratio, hidden_layer_size=hidden_layer_size,
             max_num_steps=max_num_steps, **kwargs)
         self.embedding_size = embedding_size
-        self.output_size = embedding_size
 
     def _build_inputs(self):
-        """Generate placeholder variables to represent the input tensors."""
+        """Generate placeholder variables to represent the input tensors.
+
+        In the case of the embeddings, we don't need to take the full one
+        hot encoding but only the index of the input element, so we reduce
+        one dimension of the input and labels placeholders."""
         # Placeholder for the inputs in a given iteration.
         self.instances_placeholder = tf.placeholder(
             tf.int32, (None, self.max_num_steps),
@@ -37,31 +40,34 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             tf.int32, (None, self.max_num_steps),
             name='labels_placeholder')
 
-    def _get_embedding(self, element_ids, element_only=False):
+    def _get_embedding(self, element_ids, element_embeddings,
+                       positive_embedding, element_only=False):
         """Returns self.element_embeddings + self.positive_embeddings if
         the element is positive, and self.element_embedding is is negative."""
         embedded_element = tf.nn.embedding_lookup(
-            self.element_embeddings, tf.abs(element_ids))
+            element_embeddings, tf.abs(element_ids))
         if element_only:
             return embedded_element
         embedded_outcome = tf.nn.embedding_lookup(
-            self.positive_embedding,
+            positive_embedding,
             tf.clip_by_value(element_ids, clip_value_min=0,
                              clip_value_max=self.dataset.feature_vector_size))
         return tf.add_n([embedded_element, embedded_outcome])
 
     def _build_input_layers(self):
         with tf.name_scope('embedding_layer') as scope:
-            self.element_embeddings = tf.concat([
+            element_embeddings = tf.concat([
                 tf.zeros([1, self.embedding_size]),
                 tf.Variable(tf.random_uniform([self.dataset.feature_vector_size,
                                                self.embedding_size], 0, 1.0),
                             trainable=True)], 0, name="element_embedding")
-            self.positive_embedding = tf.concat([
+            positive_embedding = tf.concat([
                 tf.Variable(tf.random_uniform([self.dataset.feature_vector_size,
                                                self.embedding_size], 0, 1.0),
                             trainable=True)], 0, name="positive_embedding")
-            input = self._get_embedding(self.instances_placeholder)
+            input = self._get_embedding(self.instances_placeholder,
+                                        element_embeddings,
+                                        positive_embedding)
             if self.dropout_ratio != 0:
                 return tf.layers.dropout(inputs=input, rate=self.dropout_ratio)
             return input
@@ -70,40 +76,63 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
         """Calculates the average binary cross entropy.
 
         Args:
-            logits: Tensor - [batch_size, max_num_steps, embedding_size]
+            logits: Tensor - [batch_size, max_num_steps, classes_num]
         """
-        logits = tf.sigmoid(logits)
-        labels = self._get_embedding(self.labels_placeholder)
-        loss = tf.reduce_mean(
-            tf.losses.mean_squared_error(predictions=logits, labels=labels,
-                                         reduction=tf.losses.Reduction.NONE),
-            axis=2)
-        # calculate the mean per sequence.
-        mask = tf.sequence_mask(self.lengths_placeholder, self.max_num_steps,
-                                dtype=loss.dtype)
+        # Convert labels to one hot encoding mask to filter only the true next
+        # exercise. We want the first position to represent the id 1,
+        # and we want the zero elements to be set as zeros.
+        labels_mask = tf.cast(
+            tf.one_hot(indices=tf.abs(self.labels_placeholder) - 1,
+                       depth=self.dataset.classes_num(), on_value=1,
+                       off_value=0, axis=-1),
+            logits.dtype)
+        true_logits = tf.multiply(logits, labels_mask)
+        # Now the only elements active are the ones with the logits for the
+        # true next elements only.
+        true_logits = tf.reduce_sum(true_logits, axis=2)
+
+        probability_labels = tf.cast(
+            tf.clip_by_value(tf.sign(self.labels_placeholder), 0, 1),
+            true_logits.dtype)
+
+        loss = tf.nn.sigmoid_cross_entropy_with_logits(
+            logits=true_logits, labels=probability_labels)
+        # loss has shape [batch_size, max_num_steps]
+        # We set to 0 the losses of the predictions outside the sequence.
+        mask = tf.sequence_mask(self.lengths_placeholder, self.max_num_steps)
+        loss = tf.boolean_mask(loss, mask)
+        # We sum all the losses in all the sequences and then divide by the
+        # number of steps in the sequence (which may be zero)
         loss = seq_lstm.safe_div(
-            tf.reduce_sum(tf.multiply(loss, mask), axis=1),
-            tf.cast(self.lengths_placeholder, loss.dtype))
-        return tf.reduce_mean(loss)
+            tf.reduce_sum(loss),
+            tf.cast(tf.reduce_sum(self.lengths_placeholder), loss.dtype))
+
+        return loss
 
     def _build_predictions(self, logits):
         """Return a tensor with the predicted probability for each instance.
 
-        The probability is the norm of the distance between the softmax of the
-        logits and the embedding of the true label.
+        The prediction is a vector with the probabilities of approving the
+        next exercise.
 
         Args:
             logits: Logits tensor, float - [batch_size, max_num_steps,
-                embedding_size].
+                classes_num].
 
         Returns:
             A float64 tensor with the predictions, with shape [batch_size,
             max_num_steps].
         """
+        # We project logits to the range (0, 1)
         logits = tf.nn.sigmoid(logits)
-        labels = self._get_embedding(self.labels_placeholder, element_only=True)
-        predictions = tf.sigmoid(tf.norm(tf.subtract(labels, logits), ord=2,
-                                         name='batch_predictions', axis=-1))
+        labels_mask = tf.cast(
+            tf.one_hot(indices=tf.abs(self.labels_placeholder) - 1,
+                       depth=self.dataset.classes_num(), on_value=1,
+                       off_value=0, axis=-1),
+            logits.dtype)
+        predictions = tf.multiply(logits, labels_mask)
+        predictions = tf.reduce_max(predictions, axis=2)
+
         return predictions
 
     def _get_step_predictions(self, batch_prediction, batch_true, feed_dict):
@@ -127,7 +156,6 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             batch_size) that were predicted correctly.
         """
         predictions = self._build_predictions(logits)
-        print predictions
         # predictions has shape [batch_size, max_num_steps]
         with tf.name_scope('evaluation_r2'):
             mask = tf.sequence_mask(

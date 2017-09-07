@@ -593,7 +593,6 @@ class SequenceDataset(SimpleSampledDataset):
         return instances, labels, self._get_sequence_lengths(instances)
 
 
-
 class LabeledSequenceDataset(SequenceDataset):
     def _pad_batch(self, batch_instances, batch_labels,
                    max_sequence_length=None):
