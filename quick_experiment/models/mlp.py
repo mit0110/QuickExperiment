@@ -1,5 +1,6 @@
 import os
 import numpy
+import sys
 import tensorflow as tf
 import time
 
@@ -209,6 +210,7 @@ class MLPModel(BaseModel):
                     )
                     performance = self.evaluate_validation(correct_predictions)
                     print 'Validation performance {}'.format(performance)
+                    sys.stdout.flush()
 
         if self.logs_dirname is not None:
             self.saver.save(
