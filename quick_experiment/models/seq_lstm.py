@@ -287,12 +287,12 @@ class SeqLSTMModel(LSTMModel):
         # Reset the accuracy variables
         stream_vars = [i for i in tf.local_variables()
                        if i.name.split('/')[0] == 'evaluation_performance']
-        accuracy_op, accuracy_update_op = correct_predictions
+        metric_op, metric_update_op = correct_predictions
         self.dataset.reset_batch()
-        accuracy = None
+        metric = None
         while self.dataset.has_next_batch(self.batch_size, partition):
             for feed_dict in self._fill_feed_dict(partition, reshuffle=False):
-                self.sess.run([accuracy_update_op], feed_dict=feed_dict)
-            accuracy = self.sess.run([accuracy_op])[0]
+                self.sess.run([metric_update_op], feed_dict=feed_dict)
+            metric = self.sess.run([metric_op])[0]
         self.sess.run([tf.variables_initializer(stream_vars)])
-        return accuracy
+        return metric

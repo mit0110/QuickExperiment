@@ -152,12 +152,12 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             logits: Logits tensor, float - [batch_size, max_num_steps,
                 embedding_size].
         Returns:
-            A scalar int32 tensor with the number of examples (out of
-            batch_size) that were predicted correctly.
+            Two operations, where the first one gives the value of the
+            mean squared error in the validation dataset.
         """
         predictions = self._build_predictions(logits)
         # predictions has shape [batch_size, max_num_steps]
-        with tf.name_scope('evaluation_r2'):
+        with tf.name_scope('evaluation_performance'):
             mask = tf.sequence_mask(
                 self.lengths_placeholder, maxlen=self.max_num_steps,
                 dtype=predictions.dtype)
@@ -165,10 +165,13 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
             true_labels = tf.clip_by_value(
                 tf.cast(tf.sign(self.labels_placeholder), predictions.dtype),
                 clip_value_min=0, clip_value_max=1)
-            r2, r2_update = tf.contrib.metrics.streaming_pearson_correlation(
+            mse, mse_update = tf.contrib.metrics.streaming_mean_squared_error(
                 predictions, true_labels, weights=mask)
 
-        return r2, r2_update
+        if self.logs_dirname is not None:
+            tf.summary.scalar('evaluation_mse', mse)
+
+        return mse, mse_update
 
 
 class EmbeddedSeqLSTMModel2(EmbeddedSeqLSTMModel):
