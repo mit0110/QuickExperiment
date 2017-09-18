@@ -169,7 +169,7 @@ class EmbeddedSeqLSTMModel(seq_lstm.SeqLSTMModel):
                 predictions, true_labels, weights=mask)
 
         if self.logs_dirname is not None:
-            tf.summary.scalar('evaluation_mse', mse)
+            tf.summary.scalar('evaluation_mse', mse_update)
 
         return mse, mse_update
 
