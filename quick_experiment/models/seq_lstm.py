@@ -83,6 +83,12 @@ class SeqLSTMModel(LSTMModel):
             (None, self.max_num_steps, self.dataset.classes_num()),
             name='labels_placeholder')
 
+    def _build_dropout(self):
+        """Generates the placeholder for the dropout."""
+        self.dropout_placeholder = tf.placeholder(
+            tf.float16, (1,), name='dropout_placeholder'
+        )
+
     def reshape_output(self, outputs, lengths):
         return outputs
 
@@ -123,7 +129,7 @@ class SeqLSTMModel(LSTMModel):
         """Applies a dropout to the input instances"""
         if self.dropout_ratio != 0:
             return tf.layers.dropout(inputs=self.instances_placeholder,
-                                     rate=self.dropout_ratio)
+                                     rate=self.dropout_placeholder)
         return self.instances_placeholder
 
     def _build_recurrent_layer(self):
@@ -171,6 +177,7 @@ class SeqLSTMModel(LSTMModel):
         loss_value = []
         feed_dict = None
         for feed_dict in self._fill_feed_dict(partition_name):
+            feed_dict[self.dropout_placeholder] = self.dropout_ratio
             result = self.sess.run(
                 [train_op, self.last_state_op, loss], feed_dict=feed_dict)
             loss_value.append(result[2])
@@ -252,6 +259,7 @@ class SeqLSTMModel(LSTMModel):
                 batch_true = [numpy.array([]) for _ in range(self.batch_size)]
                 for feed_dict in self._fill_feed_dict(partition_name,
                                                       reshuffle=False):
+                    feed_dict[self.dropout_placeholder] = 0
                     self._get_step_predictions(batch_prediction, batch_true,
                                                feed_dict)
                 predictions.extend(batch_prediction)
@@ -292,6 +300,7 @@ class SeqLSTMModel(LSTMModel):
         metric = None
         while self.dataset.has_next_batch(self.batch_size, partition):
             for feed_dict in self._fill_feed_dict(partition, reshuffle=False):
+                feed_dict[self.dropout_placeholder] = 0
                 self.sess.run([metric_update_op], feed_dict=feed_dict)
             metric = self.sess.run([metric_op])[0]
         self.sess.run([tf.variables_initializer(stream_vars)])
