@@ -86,7 +86,7 @@ class SeqLSTMModel(LSTMModel):
     def _build_dropout(self):
         """Generates the placeholder for the dropout."""
         self.dropout_placeholder = tf.placeholder(
-            tf.float16, (1,), name='dropout_placeholder'
+            tf.float32, name='dropout_placeholder'
         )
 
     def reshape_output(self, outputs, lengths):
@@ -127,6 +127,7 @@ class SeqLSTMModel(LSTMModel):
 
     def _build_input_layers(self):
         """Applies a dropout to the input instances"""
+        self._build_dropout()
         if self.dropout_ratio != 0:
             return tf.layers.dropout(inputs=self.instances_placeholder,
                                      rate=self.dropout_placeholder)
