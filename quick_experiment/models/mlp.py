@@ -164,8 +164,7 @@ class MLPModel(BaseModel):
         # Variable to store the predictions
         return tf.argmax(logits, -1, name='batch_predictions')
 
-    def fit(self, partition_name='train', close_session=False):
-        print 'Fitting'
+    def build_all(self):
         self.graph = tf.Graph()
         with self.graph.as_default():
 
@@ -173,10 +172,10 @@ class MLPModel(BaseModel):
             # Build a Graph that computes predictions from the inference model.
             logits = self._build_layers()
             # Add to the Graph the Ops for loss calculation.
-            loss = self._build_loss(logits)
+            self.loss_op = self._build_loss(logits)
             # Add to the Graph the Ops that calculate and apply gradients.
-            train_op = self._build_train_operation(loss)
-            correct_predictions = self._build_evaluation(logits)
+            self.train_op = self._build_train_operation(self.loss_op)
+            self.evaluation_op = self._build_evaluation(logits)
             self.predictions = self._build_predictions(logits)
 
             if self.logs_dirname is not None:
@@ -196,11 +195,18 @@ class MLPModel(BaseModel):
                                                             self.sess.graph)
             self.sess.run([init, init_local])
 
+    def fit(self, partition_name='train', close_session=False):
+        print 'Fitting'
+        if self.graph is None:
+            self.build_all()
+
+        with self.graph.as_default():
+
             # Run the training loop
             for epoch in range(self.training_epochs):
                 start_time = time.time()
-                loss_value = self.run_train_op(epoch, loss, partition_name,
-                                               train_op)
+                loss_value = self.run_train_op(epoch, self.loss_op,
+                                               partition_name, self.train_op)
                 end_time = time.time()
 
                 if (epoch != 0 and self.log_values is not 0
@@ -208,14 +214,13 @@ class MLPModel(BaseModel):
                     print 'Classifier loss at step {} ({:.2f}s): {}'.format(
                         epoch, end_time - start_time, loss_value
                     )
-                    performance = self.evaluate_validation(correct_predictions)
+                    performance = self.evaluate_validation(self.evaluation_op)
                     print 'Validation performance {}'.format(performance)
                     sys.stdout.flush()
 
         if self.logs_dirname is not None:
             self.saver.save(
-                self.sess, os.path.join(self.logs_dirname, "model.ckpt"),
-                0)
+                self.sess, os.path.join(self.logs_dirname, "model.ckpt"), 0)
 
         if close_session:
             self.sess.close()

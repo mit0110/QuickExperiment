@@ -17,6 +17,7 @@ class BaseModel(object):
 
     def __init__(self, dataset, **kwargs):
         self.dataset = dataset
+        self.graph = None
 
     def fit(self, partition_name):
         """Train the model with a dataset partition.

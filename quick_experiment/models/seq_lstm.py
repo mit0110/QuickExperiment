@@ -249,12 +249,13 @@ class SeqLSTMModel(LSTMModel):
             batch_true[index] = numpy.append(
                 batch_true[index], labels[index, :length])
 
-    def predict(self, partition_name):
+    def predict(self, partition_name, limit=-1):
         predictions = []
         true = []
         self.dataset.reset_batch()
         with self.graph.as_default():
-            while self.dataset.has_next_batch(self.batch_size, partition_name):
+            while (self.dataset.has_next_batch(self.batch_size, partition_name)
+                   and (limit <= 0 or len(predictions) < limit)):
                 batch_prediction = [numpy.array([]) for
                                     _ in range(self.batch_size)]
                 batch_true = [numpy.array([]) for _ in range(self.batch_size)]
