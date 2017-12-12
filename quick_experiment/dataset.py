@@ -1,10 +1,9 @@
 import logging
+import numpy
 import os
 
-import numpy
-import utils
-
 from collections import namedtuple
+from quick_experiment import utils
 from scipy import sparse
 
 
@@ -157,15 +156,15 @@ class SimpleDataset(BaseDataset):
 
     @property
     def feature_vector_size(self):
-        return self.datasets.values()[0].instances.shape[1]
+        return next(iter(self.datasets.values())).instances.shape[1]
 
     @property
     def instances_type(self):
-        return self.datasets.values()[0].instances.dtype
+        return next(iter(self.datasets.values())).instances.dtype
 
     @property
     def labels_type(self):
-        return self.datasets.values()[0].labels.dtype
+        return next(iter(self.datasets.values())).labels.dtype
 
     def classes_num(self, partition_name='train'):
         """Returns the number of unique classes in a partition of the dataset.
@@ -202,7 +201,7 @@ class SimpleDataset(BaseDataset):
                 indices.
         """
         self.indices = indices
-        for partition, index in indices.iteritems():
+        for partition, index in indices.items():
             partition_labels = labels[index] if labels is not None else None
             self.datasets[partition] = Partition(instances=matrix[index],
                                                  labels=partition_labels)
@@ -447,7 +446,7 @@ class SimpleSampledDataset(BaseSampledDataset, SimpleDataset):
     def _load_sample(self):
         """Loads current sample in the attibute datasets."""
         indices = self._sample_indices[self.current_sample]
-        for partition, index in indices.iteritems():
+        for partition, index in indices.items():
             partition_labels = None
             if self._labels is not None:
                 partition_labels = self._labels[index]
@@ -494,7 +493,7 @@ class SequenceDataset(SimpleSampledDataset):
 
     @property
     def instances_type(self):
-        first_sequence = self.datasets.values()[0].instances[0]
+        first_sequence = next(iter(self.datasets.values())).instances[0]
         if isinstance(first_sequence[0], numpy.ndarray):
             return first_sequence[0].dtype
         if isinstance(first_sequence[0], list):
@@ -503,7 +502,7 @@ class SequenceDataset(SimpleSampledDataset):
 
     @property
     def labels_type(self):
-        return self.datasets.values()[0].labels.dtype
+        return next(iter(self.datasets.values())).labels.dtype
 
     def create_samples(self, instances, labels, samples_num, partition_sizes,
                        use_numeric_labels=False, sort_by_length=False):
@@ -613,14 +612,14 @@ class LabeledSequenceDataset(SequenceDataset):
         longest_sequence = lengths.max()
         if (max_sequence_length is not None and
                 longest_sequence % max_sequence_length != 0):
-            max_length = (int(lengths.max() / max_sequence_length + 1) *
+            max_length = int((lengths.max() // max_sequence_length + 1) *
                           max_sequence_length)
         else:
             max_length = longest_sequence
         padded_batch = numpy.zeros((batch_instances.shape[0], max_length,
                                     self.feature_vector_size))
         padded_labels = numpy.zeros((batch_instances.shape[0], max_length,
-                                     self.classes_num()))
+                                     int(self.classes_num())))
         for index, sequence in enumerate(batch_instances):
             padded_batch[index, :lengths[index]] = sequence
             padded_labels[index, :lengths[index]] = batch_labels[index]

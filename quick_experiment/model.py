@@ -1,6 +1,6 @@
 import os
 
-import utils
+from quick_experiment import utils
 
 
 class BaseModel(object):

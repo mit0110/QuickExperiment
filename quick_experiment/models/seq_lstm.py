@@ -31,27 +31,6 @@ def safe_div(numerator, denominator, name="value"):
         name=name)
 
 
-def time_distributed(incoming, fn, args=None):
-    """Applies fn to all elements of incoming along the second dimension."""
-    timestep = incoming.shape[1]
-    x = tf.unstack(incoming, axis=1)
-
-    # Create the first set of variables
-    with tf.variable_scope('time_distributed') as scope:
-        result = [fn(x[0], scope=scope, **args)]
-    # Share the variables with the following layers
-    with tf.variable_scope('time_distributed', reuse=True) as scope:
-        result.extend([fn(x[i], scope=scope, reuse=True, **args)
-                       for i in range(1, timestep)])
-    try:
-        x = map(lambda t: tf.reshape(
-            t, [-1, 1]+t.get_shape().as_list()[1:]), result)
-    except:
-        x = list(map(lambda t: tf.reshape(
-            t, [-1, 1]+t.get_shape().as_list()[1:]), result))
-    return tf.concat(x, 1)
-
-
 class SeqLSTMModel(LSTMModel):
     """A Recurrent Neural Network model with LSTM cells.
 
@@ -59,10 +38,10 @@ class SeqLSTMModel(LSTMModel):
     """
 
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
-                 training_epochs=1000, logs_dirname='.', log_values=True,
+                 logs_dirname='.', log_values=True,
                  max_num_steps=30, dropout_ratio=0.3, **kwargs):
         super(SeqLSTMModel, self).__init__(
-            dataset, name, hidden_layer_size, batch_size, training_epochs,
+            dataset, name, hidden_layer_size, batch_size,
             logs_dirname, log_values, max_num_steps, **kwargs)
         self.output_size = self.dataset.classes_num()
         self.dropout_ratio = dropout_ratio
@@ -88,9 +67,6 @@ class SeqLSTMModel(LSTMModel):
         self.dropout_placeholder = tf.placeholder_with_default(
             0.0, shape=(), name='dropout_placeholder')
 
-    def reshape_output(self, outputs, lengths):
-        return outputs
-
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
         output = self._build_recurrent_layer()
@@ -98,14 +74,15 @@ class SeqLSTMModel(LSTMModel):
         # [batch_size, max_num_steps, hidden_size].
 
         # The last layer is for the classifier
-        layer_args = {
-            'num_outputs': self.output_size, 'activation_fn': None,
-            'weights_initializer': tf.uniform_unit_scaling_initializer(),
-            'weights_regularizer': tf.contrib.layers.l2_regularizer(1e-5),
-            'biases_regularizer': tf.contrib.layers.l2_regularizer(1e-5)
-        }
-        logits = time_distributed(output, tf.contrib.layers.fully_connected,
-                                  layer_args)
+        output = tf.reshape(output, [-1, self.hidden_layer_size])
+        logits = tf.layers.dense(
+            output, self.output_size,
+            kernel_initializer=tf.uniform_unit_scaling_initializer(),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-5),
+            bias_regularizer=tf.contrib.layers.l2_regularizer(1e-5),
+            use_bias=True)
+        logits = tf.reshape(
+            logits, [-1, int(self.max_num_steps), int(self.output_size)])
         # logits is now a tensor [batch_size, max_num_steps, classes_num]
         return logits
 

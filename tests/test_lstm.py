@@ -31,7 +31,7 @@ class LSTMModelTest(unittest.TestCase):
         self.dataset.set_current_sample(0)
         self.model_arguments = {
             'hidden_layer_size': 50, 'batch_size': 20, 'logs_dirname': None,
-            'log_values': 0, 'training_epochs': 10}
+            'log_values': 0}
 
     def test_build_network(self):
         """Test if the LSTMModel is correctly built."""
@@ -45,7 +45,7 @@ class LSTMModelTest(unittest.TestCase):
         model = lstm.LSTMModel(self.dataset, **self.model_arguments)
         model.fit()
         true, predictions = model.predict('test')
-        expected_size = ((self.dataset.num_examples('test') /
+        expected_size = ((self.dataset.num_examples('test') //
                           model.batch_size) * model.batch_size)
         self.assertEqual(true.shape[0], expected_size)
         self.assertEqual(true.shape, predictions.shape)

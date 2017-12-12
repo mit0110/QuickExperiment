@@ -20,7 +20,6 @@ class MLPModel(BaseModel):
             the hidden layers of the network.
         batch_size (int): The maximum size of elements to input into the model.
             It will also be used to generate batches from the dataset.
-        training_epochs (int): Number of training iterations
         logs_dirname (string): Name of directory to save internal information
             for tensorboard visualization. If None, no records will be saved.
         log_values (int): Number of steps to wait before logging the progress of
@@ -29,7 +28,7 @@ class MLPModel(BaseModel):
     """
 
     def __init__(self, dataset, name=None, hidden_layers=[], batch_size=None,
-                 training_epochs=1000, logs_dirname='.', log_values=True,
+                 logs_dirname='.', log_values=True,
                  learning_rate=0.001, **kwargs):
         super(MLPModel, self).__init__(dataset, **kwargs)
         self.hidden_layers_sizes = hidden_layers
@@ -37,7 +36,6 @@ class MLPModel(BaseModel):
         # Variable names to save the model.
         self.learning_rate = learning_rate
         self.batch_size = batch_size
-        self.training_epochs = training_epochs
         self.logs_dirname = None
         if logs_dirname is not None:
             if name is None:
@@ -189,21 +187,23 @@ class MLPModel(BaseModel):
             init = tf.global_variables_initializer()
             init_local = tf.local_variables_initializer()
             self.sess = tf.Session()
+
             if self.logs_dirname is not None:
                 # Instantiate a SummaryWriter to output summaries and the Graph.
                 self.summary_writer = tf.summary.FileWriter(self.logs_dirname,
                                                             self.sess.graph)
             self.sess.run([init, init_local])
 
-    def fit(self, partition_name='train', close_session=False):
-        print 'Fitting'
+    def fit(self, partition_name='train', training_epochs=100,
+            close_session=False):
+        print('Fitting {}'.format(training_epochs))
         if self.graph is None:
             self.build_all()
 
         with self.graph.as_default():
 
             # Run the training loop
-            for epoch in range(self.training_epochs):
+            for epoch in range(training_epochs):
                 start_time = time.time()
                 loss_value = self.run_train_op(epoch, self.loss_op,
                                                partition_name, self.train_op)
@@ -211,11 +211,11 @@ class MLPModel(BaseModel):
 
                 if (epoch != 0 and self.log_values is not 0
                         and epoch % self.log_values is 0):
-                    print 'Classifier loss at step {} ({:.2f}s): {}'.format(
+                    print('Classifier loss at step {} ({:.2f}s): {}'.format(
                         epoch, end_time - start_time, loss_value
-                    )
+                    ))
                     performance = self.evaluate_validation(self.evaluation_op)
-                    print 'Validation performance {}'.format(performance)
+                    print('Validation performance {}'.format(performance))
                     sys.stdout.flush()
 
         if self.logs_dirname is not None:

@@ -89,7 +89,7 @@ class SimpleSampledDatasetTest(unittest.TestCase):
         """Test samples have correct proportion"""
         for sample in range(self.samples):
             self.dataset.set_current_sample(sample)
-            for partition, proportion in self.partition_sizes.iteritems():
+            for partition, proportion in self.partition_sizes.items():
                 self.assertEqual(int(proportion * self.matrix.shape[0]),
                                  self.dataset.num_examples(partition))
 

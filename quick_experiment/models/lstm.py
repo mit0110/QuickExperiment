@@ -15,7 +15,6 @@ class LSTMModel(MLPModel):
         hidden_layer_size (int): The size of the hidden layer of the network.
         batch_size (int): The maximum size of elements to input into the model.
             It will also be used to generate batches from the dataset.
-        training_epochs (int): Number of training iterations
         logs_dirname (string): Name of directory to save internal information
             for tensorboard visualization. If None, no records will be saved
         log_values (int): Number of steps to wait before logging the progress
@@ -27,12 +26,11 @@ class LSTMModel(MLPModel):
     """
 
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
-                 training_epochs=1000, logs_dirname='.', log_values=True,
+                 logs_dirname='.', log_values=True,
                  max_num_steps=30, **kwargs):
         super(LSTMModel, self).__init__(
-            dataset, batch_size=batch_size, training_epochs=training_epochs,
-            logs_dirname=logs_dirname, name=name, log_values=log_values,
-            **kwargs)
+            dataset, batch_size=batch_size, logs_dirname=logs_dirname,
+            name=name, log_values=log_values, **kwargs)
         self.hidden_layer_size = hidden_layer_size
         self.max_num_steps = max_num_steps
         self.max_grad_norm = 20
@@ -165,6 +163,7 @@ class LSTMModel(MLPModel):
                 true.append(feed_dict[self.labels_placeholder])
                 feed_dict = self._fill_feed_dict(partition_name,
                                                  reshuffle=False)
+                print(len(predictions))
         return numpy.concatenate(true), numpy.array(predictions)
 
     def evaluate_validation(self, correct_predictions):

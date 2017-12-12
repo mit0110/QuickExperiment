@@ -40,7 +40,7 @@ class SeqLSTMModelTest(unittest.TestCase):
         self.model_arguments = {
             'hidden_layer_size': 40, 'batch_size': self.batch_size,
             'logs_dirname': None,
-            'log_values': 10, 'training_epochs': 100,
+            'log_values': 10,
             'max_num_steps': self.max_num_steps}
         # Check build does not raise errors
         self.model = seq_lstm.SeqLSTMModel(self.dataset, **self.model_arguments)
@@ -105,7 +105,7 @@ class SeqLSTMModelTest(unittest.TestCase):
             sess = tf.Session()
             sess.run(tf.local_variables_initializer())
             for iteration in range(iterations):
-                feed_dict = self.model._fill_feed_dict('train').next()
+                feed_dict = next(self.model._fill_feed_dict('train'))
                 logits_ev, _ = sess.run([logits, accuracy_update_op],
                                         feed_dict=feed_dict)
                 labels = feed_dict[self.model.labels_placeholder]
