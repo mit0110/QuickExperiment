@@ -17,7 +17,8 @@ class LSTMModelTest(unittest.TestCase):
         # The matrix is an array of sequences of varying sizes. Each
         # sequence is an array of two elements.
         self.matrix = [
-            numpy.array([numpy.array([x, x+1]) for x in range(random.randint(3, 20))])
+            numpy.array([numpy.array([x, x+1])
+                         for x in range(random.randint(3, 20))])
             for _ in range(num_examples)]
         self.matrix = numpy.array(self.matrix)
         self.labels = (
@@ -40,7 +41,7 @@ class LSTMModelTest(unittest.TestCase):
         model.fit(close_session=True)
 
     def test_predict(self):
-        """Test if the LSTMModel is correctly built."""
+        """Test if the LSTMModel returns consistent predictions."""
         # Check build does not raise errors
         model = lstm.LSTMModel(self.dataset, **self.model_arguments)
         model.fit()
@@ -49,6 +50,15 @@ class LSTMModelTest(unittest.TestCase):
                           model.batch_size) * model.batch_size)
         self.assertEqual(true.shape[0], expected_size)
         self.assertEqual(true.shape, predictions.shape)
+
+    def test_evaluate(self):
+        """Test if the LSTMModel returns a valid accuracy value."""
+        # Check build does not raise errors
+        model = lstm.LSTMModel(self.dataset, **self.model_arguments)
+        model.fit()
+        metric = model.evaluate('test')
+        self.assertLessEqual(0, metric)
+        self.assertGreaterEqual(1, metric)
 
     def test_reshape_output(self):
         """Test if the output are correctly reshaped after the dynamic_rnn call.
@@ -59,7 +69,7 @@ class LSTMModelTest(unittest.TestCase):
         model = lstm.LSTMModel(self.dataset, **self.model_arguments)
 
         lengths_array = numpy.random.random_integers(
-            max_num_steps / 2, max_num_steps, batch_size)
+            max_num_steps // 2, max_num_steps, batch_size)
         new_output, old_output = self._transform_output(lengths_array,
                                                         max_num_steps, model)
         self.assertEqual(new_output.shape, (batch_size, hidden_size))
@@ -80,7 +90,7 @@ class LSTMModelTest(unittest.TestCase):
         model = lstm.LSTMModel(self.dataset, **self.model_arguments)
 
         lengths_array = numpy.random.random_integers(
-            max_num_steps / 2, max_num_steps*3, batch_size)
+            max_num_steps // 2, max_num_steps*3, batch_size)
         new_output, old_output = self._transform_output(lengths_array,
                                                         max_num_steps, model)
         self.assertEqual(new_output.shape, (batch_size, hidden_size))

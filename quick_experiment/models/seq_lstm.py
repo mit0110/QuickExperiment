@@ -69,7 +69,8 @@ class SeqLSTMModel(LSTMModel):
 
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
-        output = self._build_recurrent_layer()
+        input = self._build_input_layers()
+        output = self._build_recurrent_layer(input)
         # outputs is a Tensor shaped
         # [batch_size, max_num_steps, hidden_size].
 
@@ -109,9 +110,8 @@ class SeqLSTMModel(LSTMModel):
                                      rate=self.dropout_placeholder)
         return self.instances_placeholder
 
-    def _build_recurrent_layer(self):
+    def _build_recurrent_layer(self, input):
         # The recurrent layer
-        input = self._build_input_layers()
         rnn_cell = tf.contrib.rnn.BasicLSTMCell(
             self.hidden_layer_size, forget_bias=1.0)
         with tf.name_scope('recurrent_layer') as scope:
@@ -267,17 +267,18 @@ class SeqLSTMModel(LSTMModel):
 
         return accuracy, accuracy_update
 
-    def evaluate_validation(self, correct_predictions):
-        partition = 'validation'
-        # Reset the accuracy variables
-        stream_vars = [i for i in tf.local_variables()
-                       if i.name.split('/')[0] == 'evaluation_performance']
-        metric_op, metric_update_op = correct_predictions
-        self.dataset.reset_batch()
-        metric = None
-        while self.dataset.has_next_batch(self.batch_size, partition):
-            for feed_dict in self._fill_feed_dict(partition, reshuffle=False):
-                self.sess.run([metric_update_op], feed_dict=feed_dict)
-            metric = self.sess.run([metric_op])[0]
-        self.sess.run([tf.variables_initializer(stream_vars)])
+    def evaluate(self, partition='validation'):
+        with self.graph.as_default():
+            # Reset the accuracy variables
+            stream_vars = [i for i in tf.local_variables()
+                           if i.name.split('/')[0] == 'evaluation_performance']
+            self.sess.run([tf.variables_initializer(stream_vars)])
+            metric_op, metric_update_op = self.evaluation_op
+            self.dataset.reset_batch()
+            metric = None
+            while self.dataset.has_next_batch(self.batch_size, partition):
+                for feed_dict in self._fill_feed_dict(partition,
+                                                      reshuffle=False):
+                    self.sess.run([metric_update_op], feed_dict=feed_dict)
+                metric = self.sess.run([metric_op])[0]
         return metric

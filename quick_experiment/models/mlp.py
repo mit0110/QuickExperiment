@@ -214,8 +214,11 @@ class MLPModel(BaseModel):
                     print('Classifier loss at step {} ({:.2f}s): {}'.format(
                         epoch, end_time - start_time, loss_value
                     ))
-                    performance = self.evaluate_validation(self.evaluation_op)
+                    performance = self.evaluate()
                     print('Validation performance {}'.format(performance))
+                    sys.stdout.flush()
+                    performance = self.evaluate('train')
+                    print('Training performance {}'.format(performance))
                     sys.stdout.flush()
 
         if self.logs_dirname is not None:
@@ -241,10 +244,10 @@ class MLPModel(BaseModel):
         self.summary_writer.add_summary(summary_str, epoch)
         self.summary_writer.flush()
 
-    def evaluate_validation(self, correct_predictions):
+    def evaluate(self, partition='validation'):
         true_count = 0
         self.dataset.reset_batch()
-        batch = self.dataset.next_batch(self.batch_size, 'validation',
+        batch = self.dataset.next_batch(self.batch_size, partition,
                                         reshuffle=False)
         while batch is not None:
             instance_batch, labels_batch = batch
@@ -252,11 +255,10 @@ class MLPModel(BaseModel):
                 self.instances_placeholder: instance_batch,
                 self.labels_placeholder: labels_batch
             }
-            true_count += self.sess.run(correct_predictions,
-                                        feed_dict=feed_dict)
-            batch = self.dataset.next_batch(self.batch_size, 'validation',
+            true_count += self.sess.run(self.evaluation_op, feed_dict=feed_dict)
+            batch = self.dataset.next_batch(self.batch_size, partition,
                                             reshuffle=False)
-        return true_count / float(self.dataset.num_examples('validation'))
+        return true_count / float(self.dataset.num_examples(partition))
 
     def predict(self, partition_name):
         predictions = []

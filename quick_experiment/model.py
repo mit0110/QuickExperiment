@@ -37,6 +37,15 @@ class BaseModel(object):
         """
         raise NotImplementedError
 
+    def evaluate(self, partition_name):
+        """Return a metric of performance over a dataset partition.
+
+        Args:
+            partition_name (str): The partition of the dataset to use for
+                prediction.
+        """
+        raise NotImplementedError
+
     def save_to_file(self, directory_name, name=None):
         """Save model to directory_name.
 

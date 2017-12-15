@@ -33,7 +33,6 @@ class LSTMModel(MLPModel):
             name=name, log_values=log_values, **kwargs)
         self.hidden_layer_size = hidden_layer_size
         self.max_num_steps = max_num_steps
-        self.max_grad_norm = 20
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -72,9 +71,13 @@ class LSTMModel(MLPModel):
         relevant = tf.gather(flat, index)
         return relevant
 
+    def _build_input_layers(self):
+        return self.instances_placeholder
+
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
-        output = self._build_recurrent_layer()
+        input = self._build_input_layers()
+        output = self._build_recurrent_layer(input)
         # The last layer is for the classifier
         with tf.name_scope('logits_layer') as scope:
             logits = tf.contrib.layers.fully_connected(
@@ -88,7 +91,7 @@ class LSTMModel(MLPModel):
             )
         return logits
 
-    def _build_recurrent_layer(self):
+    def _build_recurrent_layer(self, input):
         # The recurrent layer
         lstm_cell = tf.contrib.rnn.BasicLSTMCell(
             self.hidden_layer_size, forget_bias=1.0)
@@ -97,7 +100,7 @@ class LSTMModel(MLPModel):
             # cell.output_size].
             # State is a Tensor shaped [batch_size, cell.state_size]
             outputs, state = tf.nn.dynamic_rnn(
-                lstm_cell, inputs=self.instances_placeholder,
+                lstm_cell, inputs=input,
                 sequence_length=self.lengths_placeholder, scope=scope,
                 initial_state=lstm_cell.zero_state(
                     tf.shape(self.instances_placeholder)[0], tf.float32))
@@ -166,13 +169,17 @@ class LSTMModel(MLPModel):
                 print(len(predictions))
         return numpy.concatenate(true), numpy.array(predictions)
 
-    def evaluate_validation(self, correct_predictions):
+    def evaluate(self, partition='validation'):
+        """Returns the accuracy of the model over the given partition.
+
+        Args:
+            parition: String, one of the dataset partitions.
+        """
         true_count = 0
         self.dataset.reset_batch()
-        feed_dict = self._fill_feed_dict('validation', reshuffle=False)
+        feed_dict = self._fill_feed_dict(partition, reshuffle=False)
         while feed_dict is not None:
-            true_count += self.sess.run(correct_predictions,
-                                        feed_dict=feed_dict)
-            feed_dict = self._fill_feed_dict('validation', reshuffle=False)
-        return true_count / float(self.dataset.num_examples('validation'))
+            true_count += self.sess.run(self.evaluation_op, feed_dict=feed_dict)
+            feed_dict = self._fill_feed_dict(partition, reshuffle=False)
+        return true_count / float(self.dataset.num_examples(partition))
 

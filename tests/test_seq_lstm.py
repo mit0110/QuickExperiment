@@ -36,13 +36,13 @@ class SeqLSTMModelTest(unittest.TestCase):
         self.dataset.create_samples(self.matrix, None, 1,
                                     self.partition_sizes, sort_by_length=True)
         self.dataset.set_current_sample(0)
-
         self.model_arguments = {
             'hidden_layer_size': 40, 'batch_size': self.batch_size,
             'logs_dirname': None,
             'log_values': 10,
             'max_num_steps': self.max_num_steps}
         # Check build does not raise errors
+        tf.reset_default_graph()
         self.model = seq_lstm.SeqLSTMModel(self.dataset, **self.model_arguments)
 
     def test_build_network(self):
@@ -154,6 +154,13 @@ class SeqLSTMModelTest(unittest.TestCase):
         for true_sequence, predicted_sequence in zip(true, predictions):
             self.assertEqual(true_sequence.shape[0],
                              predicted_sequence.shape[0])
+
+    def test_evaluate(self):
+        """Test if the model returns a valid accuracy value."""
+        self.model.fit(close_session=False)
+        metric = self.model.evaluate('test')
+        self.assertLessEqual(0, metric)
+        self.assertGreaterEqual(1, metric)
 
 
 if __name__ == '__main__':
