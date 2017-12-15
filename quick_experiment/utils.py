@@ -13,12 +13,12 @@ def safe_mkdir(dir_name):
 
 
 def pickle_to_file(object_, filename):
-    with open(filename, 'w') as file_:
+    with open(filename, 'wb') as file_:
         pickle.dump(object_, file_)
 
 
 def pickle_from_file(filename):
-    with open(filename, 'r') as file_:
+    with open(filename, 'rb') as file_:
         return pickle.load(file_)
 
 

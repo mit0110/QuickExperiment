@@ -468,7 +468,9 @@ class SimpleSampledDataset(BaseSampledDataset, SimpleDataset):
 
 
 class SequenceDataset(SimpleSampledDataset):
-    """Representation of a dataset where instances are sequences."""
+    """Representation of a dataset where instances are sequences.
+
+    Each instance has a single label."""
 
     def __init__(self):
         super(SequenceDataset, self).__init__()
@@ -603,7 +605,7 @@ class LabeledSequenceDataset(SequenceDataset):
                 sequence is a matrix.
             batch_labels: a list of sequence labels of size batch_size. Each
                 label is a vector.
-            max_sequence_length (int): the maximum sequence lenght or None
+            max_sequence_length (int): the maximum sequence length or None
 
         Returns:
             A tuple with the padded batch and the original lengths.
