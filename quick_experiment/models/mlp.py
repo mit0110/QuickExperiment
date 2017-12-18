@@ -44,6 +44,8 @@ class MLPModel(BaseModel):
                 self.logs_dirname = os.path.join(logs_dirname, name)
             utils.safe_mkdir(self.logs_dirname)
         self.log_values = log_values
+        self.validation_performance = []
+        self.training_performance = []
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors.
@@ -186,7 +188,8 @@ class MLPModel(BaseModel):
             # Create a session for running Ops on the Graph.
             init = tf.global_variables_initializer()
             init_local = tf.local_variables_initializer()
-            self.sess = tf.Session()
+            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.48)
+            self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
 
             if self.logs_dirname is not None:
                 # Instantiate a SummaryWriter to output summaries and the Graph.
@@ -216,9 +219,11 @@ class MLPModel(BaseModel):
                     ))
                     performance = self.evaluate()
                     print('Validation performance {}'.format(performance))
+                    self.validation_performance.append((epoch, performance))
                     sys.stdout.flush()
                     performance = self.evaluate('train')
                     print('Training performance {}'.format(performance))
+                    self.training_performance.append((epoch, performance))
                     sys.stdout.flush()
 
         if self.logs_dirname is not None:
