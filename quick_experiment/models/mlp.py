@@ -188,7 +188,8 @@ class MLPModel(BaseModel):
             # Create a session for running Ops on the Graph.
             init = tf.global_variables_initializer()
             init_local = tf.local_variables_initializer()
-            self.sess = tf.Session()
+            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.48)
+            self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
 
             if self.logs_dirname is not None:
                 # Instantiate a SummaryWriter to output summaries and the Graph.
