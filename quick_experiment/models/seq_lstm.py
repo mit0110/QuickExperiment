@@ -41,10 +41,11 @@ class SeqLSTMModel(LSTMModel):
                  logs_dirname='.', log_values=True,
                  max_num_steps=30, dropout_ratio=0.3, **kwargs):
         super(SeqLSTMModel, self).__init__(
-            dataset, name, hidden_layer_size, batch_size,
-            logs_dirname, log_values, max_num_steps, **kwargs)
+            dataset, name, hidden_layer_size=hidden_layer_size,
+            batch_size=batch_size, dropout_ratio=dropout_ratio,
+            logs_dirname=logs_dirname, log_values=log_values,
+            max_num_steps=max_num_steps, **kwargs)
         self.output_size = self.dataset.classes_num()
-        self.dropout_ratio = dropout_ratio
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -62,11 +63,6 @@ class SeqLSTMModel(LSTMModel):
             (None, self.max_num_steps, self.dataset.classes_num()),
             name='labels_placeholder')
 
-    def _build_dropout(self):
-        """Generates the placeholder for the dropout."""
-        self.dropout_placeholder = tf.placeholder_with_default(
-            0.0, shape=(), name='dropout_placeholder')
-
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
         input = self._build_input_layers()
@@ -76,6 +72,9 @@ class SeqLSTMModel(LSTMModel):
 
         # The last layer is for the classifier
         output = tf.reshape(output, [-1, self.hidden_layer_size])
+        # Adding dropout
+        output = tf.layers.dropout(inputs=output,
+                                   rate=self.dropout_placeholder)
         logits = tf.layers.dense(
             output, self.output_size,
             kernel_initializer=tf.uniform_unit_scaling_initializer(),
@@ -104,7 +103,8 @@ class SeqLSTMModel(LSTMModel):
 
     def _build_input_layers(self):
         """Applies a dropout to the input instances"""
-        self._build_dropout()
+        self.dropout_placeholder = tf.placeholder_with_default(
+            0.0, shape=(), name='dropout_placeholder')
         if self.dropout_ratio != 0:
             return tf.layers.dropout(inputs=self.instances_placeholder,
                                      rate=self.dropout_placeholder)

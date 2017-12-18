@@ -26,13 +26,14 @@ class LSTMModel(MLPModel):
     """
 
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
-                 logs_dirname='.', log_values=True,
+                 logs_dirname='.', log_values=True, dropout_ratio=0.3,
                  max_num_steps=30, **kwargs):
         super(LSTMModel, self).__init__(
             dataset, batch_size=batch_size, logs_dirname=logs_dirname,
             name=name, log_values=log_values, **kwargs)
         self.hidden_layer_size = hidden_layer_size
         self.max_num_steps = max_num_steps
+        self.dropout_ratio = dropout_ratio
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -72,12 +73,19 @@ class LSTMModel(MLPModel):
         return relevant
 
     def _build_input_layers(self):
+        self.dropout_placeholder = tf.placeholder_with_default(
+            0.0, shape=(), name='dropout_placeholder')
+        if self.dropout_ratio != 0:
+            return tf.layers.dropout(
+                inputs=tf.cast(self.instances_placeholder, tf.float32),
+                rate=self.dropout_placeholder)
         return self.instances_placeholder
 
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
         input = self._build_input_layers()
         output = self._build_recurrent_layer(input)
+
         # The last layer is for the classifier
         with tf.name_scope('logits_layer') as scope:
             logits = tf.contrib.layers.fully_connected(
