@@ -86,6 +86,9 @@ class LSTMModel(MLPModel):
         input = self._build_input_layers()
         output = self._build_recurrent_layer(input)
 
+        if self.dropout_ratio != 0:
+            output = tf.layers.dropout(
+                inputs=output, rate=self.dropout_placeholder)
         # The last layer is for the classifier
         with tf.name_scope('logits_layer') as scope:
             logits = tf.contrib.layers.fully_connected(

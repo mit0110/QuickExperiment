@@ -472,9 +472,10 @@ class SequenceDataset(SimpleSampledDataset):
 
     Each instance has a single label."""
 
-    def __init__(self):
+    def __init__(self, padding_value=0):
         super(SequenceDataset, self).__init__()
         self._lengths = None
+        self.padding_value = padding_value
 
     @staticmethod
     def _get_sequence_lengths(sequence):
@@ -487,8 +488,8 @@ class SequenceDataset(SimpleSampledDataset):
         if isinstance(first_sequence, sparse.csr_matrix) or isinstance(
                 first_sequence, sparse.coo_matrix):
             return first_sequence.shape[1]
-        if isinstance(first_sequence[0], numpy.ndarray):
-            return first_sequence[0].shape[0]
+        if isinstance(first_sequence, numpy.ndarray):
+            return first_sequence.shape[1]
         if isinstance(first_sequence[0], list):
             return len(first_sequence[0])
         return 1
@@ -551,7 +552,8 @@ class SequenceDataset(SimpleSampledDataset):
         else:
             max_length = lengths.max()
         padded_batch = numpy.zeros(
-            (batch_instances.shape[0], max_length, self.feature_vector_size))
+            (batch_instances.shape[0], max_length, self.feature_vector_size)
+        ) + self.padding_value
         for index, sequence in enumerate(batch_instances):
             if lengths[index] <= max_length:
                 padded_batch[index, :lengths[index]] = sequence
