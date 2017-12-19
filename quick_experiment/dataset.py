@@ -548,7 +548,7 @@ class SequenceDataset(SimpleSampledDataset):
         """
         lengths = self._get_sequence_lengths(batch_instances)
         if max_sequence_length is not None:
-            max_length = min(lengths.max(), max_sequence_length)
+            max_length = max_sequence_length
         else:
             max_length = lengths.max()
         padded_batch = numpy.zeros(

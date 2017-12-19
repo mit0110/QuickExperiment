@@ -111,7 +111,7 @@ class LSTMModel(MLPModel):
             # cell.output_size].
             # State is a Tensor shaped [batch_size, cell.state_size]
             outputs, state = tf.nn.dynamic_rnn(
-                lstm_cell, inputs=input,
+                lstm_cell, inputs=tf.cast(input, tf.float32),
                 sequence_length=self.lengths_placeholder, scope=scope,
                 initial_state=lstm_cell.zero_state(
                     tf.shape(self.instances_placeholder)[0], tf.float32))
@@ -177,7 +177,6 @@ class LSTMModel(MLPModel):
                 true.append(feed_dict[self.labels_placeholder])
                 feed_dict = self._fill_feed_dict(partition_name,
                                                  reshuffle=False)
-                print(len(predictions))
         return numpy.concatenate(true), numpy.array(predictions)
 
     def evaluate(self, partition='validation'):
