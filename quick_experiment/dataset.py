@@ -489,6 +489,8 @@ class SequenceDataset(SimpleSampledDataset):
                 first_sequence, sparse.coo_matrix):
             return first_sequence.shape[1]
         if isinstance(first_sequence, numpy.ndarray):
+            if len(first_sequence.shape) == 1:
+                return 1
             return first_sequence.shape[1]
         if isinstance(first_sequence[0], list):
             return len(first_sequence[0])
@@ -551,9 +553,13 @@ class SequenceDataset(SimpleSampledDataset):
             max_length = max_sequence_length
         else:
             max_length = lengths.max()
-        padded_batch = numpy.zeros(
-            (batch_instances.shape[0], max_length, self.feature_vector_size)
-        ) + self.padding_value
+        if self.feature_vector_size == 1:
+            padded_batch = numpy.zeros(
+                (batch_instances.shape[0], max_length)) + self.padding_value
+        else:
+            padded_batch = numpy.zeros(
+                (batch_instances.shape[0], max_length, self.feature_vector_size)
+            ) + self.padding_value
         for index, sequence in enumerate(batch_instances):
             if lengths[index] <= max_length:
                 padded_batch[index, :lengths[index]] = sequence
