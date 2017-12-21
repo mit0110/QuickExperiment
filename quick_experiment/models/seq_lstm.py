@@ -110,7 +110,7 @@ class SeqLSTMModel(LSTMModel):
                                      rate=self.dropout_placeholder)
         return self.instances_placeholder
 
-    def _build_recurrent_layer(self, input):
+    def _build_recurrent_layer(self, input_op):
         # The recurrent layer
         rnn_cell = tf.contrib.rnn.BasicLSTMCell(
             self.hidden_layer_size, forget_bias=1.0)
@@ -121,7 +121,7 @@ class SeqLSTMModel(LSTMModel):
             # cell.output_size].
             # State is a Tensor shaped [batch_size, cell.state_size]
             outputs, new_state = tf.nn.dynamic_rnn(
-                rnn_cell, inputs=input,
+                rnn_cell, inputs=input_op,
                 sequence_length=self.lengths_placeholder, scope=scope,
                 initial_state=state_variable)
             # Define the state operations. This wont execute now.

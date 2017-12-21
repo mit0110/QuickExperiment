@@ -102,16 +102,19 @@ class LSTMModel(MLPModel):
             )
         return logits
 
-    def _build_recurrent_layer(self, input):
-        # The recurrent layer
-        lstm_cell = tf.contrib.rnn.BasicLSTMCell(
+    def _build_rnn_cell(self):
+        return tf.contrib.rnn.BasicLSTMCell(
             self.hidden_layer_size, forget_bias=1.0)
+
+    def _build_recurrent_layer(self, input_op):
+        # The recurrent layer
+        lstm_cell = self._build_rnn_cell()
         with tf.name_scope('recurrent_layer') as scope:
             # outputs is a Tensor shaped [batch_size, max_time,
             # cell.output_size].
             # State is a Tensor shaped [batch_size, cell.state_size]
             outputs, state = tf.nn.dynamic_rnn(
-                lstm_cell, inputs=tf.cast(input, tf.float32),
+                lstm_cell, inputs=tf.cast(input_op, tf.float32),
                 sequence_length=self.lengths_placeholder, scope=scope,
                 initial_state=lstm_cell.zero_state(
                     tf.shape(self.instances_placeholder)[0], tf.float32))
