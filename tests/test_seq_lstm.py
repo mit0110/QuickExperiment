@@ -18,7 +18,7 @@ class SeqLSTMModelTest(unittest.TestCase):
     def _get_random_sequence(self):
         return numpy.array([
             self._get_one_hot_encoding(x % self.feature_size)
-            for x in range(random.randint(3, self.max_num_steps))])
+            for x in range(random.randint(3, 2*self.max_num_steps))])
 
     def setUp(self):
         num_examples = 50
@@ -162,6 +162,20 @@ class SeqLSTMModelTest(unittest.TestCase):
         self.assertLessEqual(0, metric)
         self.assertGreaterEqual(1, metric)
 
+    def test_fill_feed_dict(self):
+        for instance in self.dataset._instances:
+            self.assertLessEqual(instance.shape[0], 2*self.max_num_steps)
+        self.model.build_all()
+        batch_iterator = self.model._fill_feed_dict(partition_name='train')
+        instances = next(batch_iterator)[self.model.instances_placeholder]
+        self.assertEqual(instances.shape, (self.batch_size, self.max_num_steps,
+                                           self.dataset.feature_vector_size))
+        # As the maximum sequence lenght is 2, this should run exactly two times
+        instances = next(batch_iterator)[self.model.instances_placeholder]
+        self.assertEqual(instances.shape, (self.batch_size, self.max_num_steps,
+                                           self.dataset.feature_vector_size))
+        with self.assertRaises(StopIteration):
+            next(batch_iterator)
 
 if __name__ == '__main__':
     unittest.main()

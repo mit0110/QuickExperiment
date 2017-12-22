@@ -11,5 +11,5 @@ Examples:
 ```
 QuickExperiment$ nosetests tests/
 QuickExperiment$ nosetests tests/test_seq_lstm.py
-QuickExperiment$ nosetests --nologcapture tests.test_seq_lstm.SeqLSTMModelTest.test_fit_loss
+QuickExperiment$ nosetests --nologcapture tests.test_seq_lstm:SeqLSTMModelTest.test_fit_loss
 ```
