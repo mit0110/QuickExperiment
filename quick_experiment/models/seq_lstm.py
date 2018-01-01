@@ -86,21 +86,6 @@ class SeqLSTMModel(LSTMModel):
         # logits is now a tensor [batch_size, max_num_steps, classes_num]
         return logits
 
-    def _build_state_variables(self, cell):
-        # Get the initial state and make a variable out of it
-        # to enable updating its value.
-        state_c, state_h = cell.zero_state(self.batch_size, tf.float32)
-        return (tf.contrib.rnn.LSTMStateTuple(
-            tf.Variable(state_c, trainable=False),
-            tf.Variable(state_h, trainable=False)))
-
-    @staticmethod
-    def _get_state_update_op(state_variables, new_state):
-        # Add an operation to update the train states with the last state
-        # Assign the new state to the state variables on this layer
-        return (state_variables[0].assign(new_state[0]),
-                state_variables[1].assign(new_state[1]))
-
     def _build_input_layers(self):
         """Applies a dropout to the input instances"""
         self.dropout_placeholder = tf.placeholder_with_default(
@@ -162,30 +147,6 @@ class SeqLSTMModel(LSTMModel):
             self.write_summary(epoch, feed_dict)
         return numpy.mean(loss_value)
 
-    def _fill_feed_dict(self, partition_name='train', reshuffle=True):
-        """Fills the feed_dict for training the given step.
-
-        Args:
-            partition_name (string): The name of the partition to get the batch
-                from.
-
-        Yields:
-            The feed dictionaries mapping from placeholders to values with
-                each chunk of size self.max_num_steps for the current batch.
-        """
-        batch = self.dataset.next_batch(
-            self.batch_size, partition_name, pad_sequences=True,
-            max_sequence_length=self.max_num_steps, reshuffle=reshuffle)
-        if batch is None:
-            raise ValueError('Batch is None')
-        instances, labels, lengths = batch
-        step_size = self.max_num_steps or instances.shape[1]
-        assert instances.shape[1] % step_size == 0
-        for start_index in range(0, instances.shape[1], step_size):
-            feed_dict = self._get_step_dict(instances, labels, lengths,
-                                            start_index, step_size)
-            yield feed_dict
-
     def _get_step_dict(self, instances, labels, lengths, start_index,
                        step_size):
         step_instances = instances[:, start_index: start_index + step_size]
@@ -216,6 +177,29 @@ class SeqLSTMModel(LSTMModel):
         # observed element in the sequence.
         return tf.argmax(logits, -1, name='batch_predictions')
 
+    def _build_evaluation(self, logits):
+        """Evaluate the quality of the logits at predicting the label.
+
+        Args:
+            logits: Logits tensor, float - [batch_size, max_num_steps,
+                feature_vector + 1].
+        Returns:
+            A scalar int32 tensor with the number of examples (out of
+            batch_size) that were predicted correctly.
+        """
+        predictions = self._build_predictions(logits)
+        # predictions has shape [batch_size, max_num_steps]
+        with tf.name_scope('evaluation_performance'):
+            mask = tf.sequence_mask(
+                self.lengths_placeholder, maxlen=self.max_num_steps,
+                dtype=predictions.dtype)
+            # We use the mask to ignore predictions outside the sequence length.
+            accuracy, accuracy_update = tf.contrib.metrics.streaming_accuracy(
+                predictions, tf.argmax(self.labels_placeholder, -1),
+                weights=mask)
+
+        return accuracy, accuracy_update
+
     def _get_step_predictions(self, batch_prediction, batch_true, feed_dict):
         step_prediction = self.sess.run(self.predictions, feed_dict=feed_dict)
         labels = numpy.argmax(feed_dict[self.labels_placeholder], axis=-1)
@@ -243,42 +227,3 @@ class SeqLSTMModel(LSTMModel):
                 true.extend(batch_true)
 
         return numpy.array(true), numpy.array(predictions)
-
-    def _build_evaluation(self, logits):
-        """Evaluate the quality of the logits at predicting the label.
-
-        Args:
-            logits: Logits tensor, float - [batch_size, max_num_steps,
-                feature_vector + 1].
-        Returns:
-            A scalar int32 tensor with the number of examples (out of
-            batch_size) that were predicted correctly.
-        """
-        predictions = self._build_predictions(logits)
-        # predictions has shape [batch_size, max_num_steps]
-        with tf.name_scope('evaluation_performance'):
-            mask = tf.sequence_mask(
-                self.lengths_placeholder, maxlen=self.max_num_steps,
-                dtype=predictions.dtype)
-            # We use the mask to ignore predictions outside the sequence length.
-            accuracy, accuracy_update = tf.contrib.metrics.streaming_accuracy(
-                predictions, tf.argmax(self.labels_placeholder, -1),
-                weights=mask)
-
-        return accuracy, accuracy_update
-
-    def evaluate(self, partition='validation'):
-        with self.graph.as_default():
-            # Reset the accuracy variables
-            stream_vars = [i for i in tf.local_variables()
-                           if i.name.split('/')[0] == 'evaluation_performance']
-            self.sess.run([tf.variables_initializer(stream_vars)])
-            metric_op, metric_update_op = self.evaluation_op
-            self.dataset.reset_batch()
-            metric = None
-            while self.dataset.has_next_batch(self.batch_size, partition):
-                for feed_dict in self._fill_feed_dict(partition,
-                                                      reshuffle=False):
-                    self.sess.run([metric_update_op], feed_dict=feed_dict)
-                metric = self.sess.run([metric_op])[0]
-        return metric

@@ -208,7 +208,7 @@ class LabeledSequenceDatasetTest(unittest.TestCase):
         for i in range(3):
             # We have 20 examples
             batch, labels, lengths = self.dataset.next_batch(
-                batch_size=4, partition_name='train', max_sequence_length=3)
+                batch_size=4, partition_name='train', step_size=3)
             batch = batch.astype(self.matrix.dtype)
             self.assertIsInstance(batch, numpy.ndarray)
             self.assertEqual(len(batch.shape), 3)

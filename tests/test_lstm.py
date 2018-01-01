@@ -16,10 +16,11 @@ class LSTMModelTest(unittest.TestCase):
         num_examples = 100
         # The matrix is an array of sequences of varying sizes. Each
         # sequence is an array of two elements.
-        self.matrix = [
-            numpy.array([numpy.array([x, x+1])
-                         for x in range(random.randint(3, 20))])
-            for _ in range(num_examples)]
+        self.max_num_steps = 10
+        self.matrix = [numpy.array([numpy.array([x, x+1])
+                                    for x in range(random.randint(
+                                        3, 2*self.max_num_steps))])
+                       for _ in range(num_examples)]
         self.matrix = numpy.array(self.matrix)
         self.labels = (
             numpy.random.random((num_examples,)) * 10).astype(numpy.int32)
@@ -50,6 +51,7 @@ class LSTMModelTest(unittest.TestCase):
                           model.batch_size) * model.batch_size)
         self.assertEqual(true.shape[0], expected_size)
         self.assertEqual(true.shape, predictions.shape)
+        self.assertGreaterEqual(predictions.min(), 0)
 
     def test_evaluate(self):
         """Test if the LSTMModel returns a valid accuracy value."""
@@ -116,6 +118,24 @@ class LSTMModelTest(unittest.TestCase):
                 sess.run(init)
                 old_output, new_output = sess.run([outputs, transform_op])
         return new_output, old_output
+
+    def test_fill_feed_dict(self):
+        batch_size = self.model_arguments['batch_size']
+        for instance in self.dataset._instances:
+            self.assertLessEqual(instance.shape[0], 2*self.max_num_steps)
+        model = lstm.LSTMModel(self.dataset, max_num_steps=self.max_num_steps,
+                               **self.model_arguments)
+        model.build_all()
+        batch_iterator = model._fill_feed_dict(partition_name='train')
+        instances = next(batch_iterator)[model.instances_placeholder]
+        self.assertEqual(instances.shape, (batch_size, self.max_num_steps,
+                                           self.dataset.feature_vector_size))
+        # As the maximum sequence lenght is 2, this should run exactly two times
+        instances = next(batch_iterator)[model.instances_placeholder]
+        self.assertEqual(instances.shape, (batch_size, self.max_num_steps,
+                                           self.dataset.feature_vector_size))
+        with self.assertRaises(StopIteration):
+            next(batch_iterator)
 
 
 if __name__ == '__main__':

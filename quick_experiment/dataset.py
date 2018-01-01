@@ -535,24 +535,28 @@ class SequenceDataset(SimpleSampledDataset):
                 self._labels = self._labels[sorted_indices]
 
     def _pad_batch(self, batch_instances, batch_labels,
-                   max_sequence_length=None):
+                   step_size=None):
         """Pad sequences with 0 to the length of the longer sequence in the
-        batch.
+        batch or the closest multiple of max_step.
 
         Args:
             batch_instances: a list of sequences of size batch_size. Each
                 sequence is a matrix.
             batch_labels: Unaltered.
-            max_sequence_length (int): the maximum sequence length
+            step_size (int): the resulting sequence length will be divisible
+                by max_step, if not None.
 
         Returns:
             A tuple with the padded batch and the original lengths.
         """
         lengths = self._get_sequence_lengths(batch_instances)
-        if max_sequence_length is not None:
-            max_length = max_sequence_length
+        longest_sequence = lengths.max()
+        if (step_size is not None and
+                longest_sequence % step_size != 0):
+            max_length = int((longest_sequence // step_size + 1) *
+                             step_size)
         else:
-            max_length = lengths.max()
+            max_length = longest_sequence
         if self.feature_vector_size == 1:
             padded_batch = numpy.zeros(
                 (batch_instances.shape[0], max_length)) + self.padding_value
@@ -568,8 +572,7 @@ class SequenceDataset(SimpleSampledDataset):
         return padded_batch, batch_labels, lengths
 
     def next_batch(self, batch_size, partition_name='train',
-                   pad_sequences=True, max_sequence_length=None,
-                   reshuffle=True):
+                   pad_sequences=True, step_size=None, reshuffle=True):
         """Generates batches of instances and labels from a partition.
 
         If the size of the partition is exceeded, the partition and the labels
@@ -581,7 +584,7 @@ class SequenceDataset(SimpleSampledDataset):
                 batches from.
             pad_sequences (bool): If True, all sequences are padded to the
                 length of the longer sequence.
-            max_sequence_length (int, optional): The maximum size of sequences.
+            step_size (int, optional): The maximum size of sequences.
 
         Returns:
             A tuple (instances, labels, lengths) of batch_size.
@@ -598,32 +601,32 @@ class SequenceDataset(SimpleSampledDataset):
         if sparse.issparse(labels[0]):
             labels = numpy.array([label.todense() for label in labels])
         if pad_sequences:
-            return self._pad_batch(instances, labels, max_sequence_length)
+            return self._pad_batch(instances, labels, step_size)
         return instances, labels, self._get_sequence_lengths(instances)
 
 
 class LabeledSequenceDataset(SequenceDataset):
     def _pad_batch(self, batch_instances, batch_labels,
-                   max_sequence_length=None):
+                   step_size=None):
         """Pad sequences with 0 to the length of the longer sequence in the
-        batch or a multiple of max_sequence_length.
+        batch or the closest multiple of max_step.
 
         Args:
             batch_instances: a list of sequences of size batch_size. Each
                 sequence is a matrix.
-            batch_labels: a list of sequence labels of size batch_size. Each
-                label is a vector.
-            max_sequence_length (int): the maximum sequence length or None
+            batch_labels: Unaltered.
+            step_size (int): the resulting sequence length will be divisible
+                by max_step, if not None.
 
         Returns:
             A tuple with the padded batch and the original lengths.
         """
         lengths = self._get_sequence_lengths(batch_instances)
         longest_sequence = lengths.max()
-        if (max_sequence_length is not None and
-                longest_sequence % max_sequence_length != 0):
-            max_length = int((lengths.max() // max_sequence_length + 1) *
-                          max_sequence_length)
+        if (step_size is not None and
+                longest_sequence % step_size != 0):
+            max_length = int((lengths.max() // step_size + 1) *
+                             step_size)
         else:
             max_length = longest_sequence
         padded_batch = numpy.zeros((batch_instances.shape[0], max_length,
@@ -731,26 +734,26 @@ class EmbeddedSequenceDataset(LabeledSequenceDataset):
         return self._feature_vector_size
 
     def _pad_batch(self, batch_instances, batch_labels,
-                   max_sequence_length=None):
+                   step_size=None):
         """Pad sequences with 0 to the length of the longer sequence in the
-        batch or a multiple of max_sequence_length.
+        batch or the closest multiple of max_step.
 
         Args:
             batch_instances: a list of sequences of size batch_size. Each
                 sequence is a matrix.
-            batch_labels: a list of sequence labels of size batch_size. Each
-                label is a vector.
-            max_sequence_length (int): the maximum sequence lenght or None
+            batch_labels: Unaltered.
+            step_size (int): the resulting sequence length will be divisible
+                by max_step, if not None.
 
         Returns:
             A tuple with the padded batch and the original lengths.
         """
         lengths = self._get_sequence_lengths(batch_instances)
         longest_sequence = lengths.max()
-        if (max_sequence_length is not None and
-                longest_sequence % max_sequence_length != 0):
-            max_length = (int(lengths.max() / max_sequence_length + 1) *
-                          max_sequence_length)
+        if (step_size is not None and
+                longest_sequence % step_size != 0):
+            max_length = (int(lengths.max() / step_size + 1) *
+                          step_size)
         else:
             max_length = longest_sequence
         padded_batch = numpy.zeros((batch_instances.shape[0], max_length))
