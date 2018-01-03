@@ -241,7 +241,7 @@ class LSTMModel(MLPModel):
                     for index, length in enumerate(
                             feed_dict[self.lengths_placeholder]):
                         if length > 0:
-                            batch_prediction[index] = step_prediction[length-1]
+                            batch_prediction[index] = step_prediction[index]
                 assert batch_true is not None
                 assert len(batch_prediction) == batch_true.shape[0]
                 predictions.extend(batch_prediction)
