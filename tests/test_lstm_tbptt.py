@@ -5,10 +5,10 @@ import tensorflow as tf
 import unittest
 
 from quick_experiment import dataset
-from quick_experiment.models import lstm
+from quick_experiment.models import lstm_tbptt
 
 
-class LSTMModelTest(unittest.TestCase):
+class TruncLSTMModelTest(unittest.TestCase):
     """Tests for building and running a LSTMModel instance"""
 
     def setUp(self):
@@ -38,13 +38,13 @@ class LSTMModelTest(unittest.TestCase):
     def test_build_network(self):
         """Test if the LSTMModel is correctly built."""
         # Check build does not raise errors
-        model = lstm.LSTMModel(self.dataset, **self.model_arguments)
+        model = lstm_tbptt.TruncLSTMModel(self.dataset, **self.model_arguments)
         model.fit(close_session=True)
 
     def test_predict(self):
         """Test if the LSTMModel returns consistent predictions."""
         # Check build does not raise errors
-        model = lstm.LSTMModel(self.dataset, **self.model_arguments)
+        model = lstm_tbptt.TruncLSTMModel(self.dataset, **self.model_arguments)
         model.fit()
         true, predictions = model.predict('test')
         expected_size = self.dataset.num_examples('test')
@@ -55,7 +55,7 @@ class LSTMModelTest(unittest.TestCase):
     def test_evaluate(self):
         """Test if the LSTMModel returns a valid accuracy value."""
         # Check build does not raise errors
-        model = lstm.LSTMModel(self.dataset, **self.model_arguments)
+        model = lstm_tbptt.TruncLSTMModel(self.dataset, **self.model_arguments)
         model.fit()
         metric = model.evaluate('test')
         self.assertLessEqual(0, metric)
@@ -67,7 +67,7 @@ class LSTMModelTest(unittest.TestCase):
         batch_size = self.model_arguments['batch_size']
         max_num_steps = 20
         hidden_size = self.model_arguments['hidden_layer_size']
-        model = lstm.LSTMModel(self.dataset, **self.model_arguments)
+        model = lstm_tbptt.TruncLSTMModel(self.dataset, **self.model_arguments)
 
         lengths_array = numpy.random.random_integers(
             max_num_steps // 2, max_num_steps, batch_size)
@@ -88,7 +88,7 @@ class LSTMModelTest(unittest.TestCase):
         batch_size = self.model_arguments['batch_size']
         max_num_steps = 20
         hidden_size = self.model_arguments['hidden_layer_size']
-        model = lstm.LSTMModel(self.dataset, **self.model_arguments)
+        model = lstm_tbptt.TruncLSTMModel(self.dataset, **self.model_arguments)
 
         lengths_array = numpy.random.random_integers(
             max_num_steps // 2, max_num_steps*3, batch_size)
@@ -122,13 +122,19 @@ class LSTMModelTest(unittest.TestCase):
         batch_size = self.model_arguments['batch_size']
         for instance in self.dataset._instances:
             self.assertLessEqual(instance.shape[0], 2*self.max_num_steps)
-        model = lstm.LSTMModel(self.dataset, max_num_steps=self.max_num_steps,
+        model = lstm_tbptt.TruncLSTMModel(self.dataset, max_num_steps=self.max_num_steps,
                                **self.model_arguments)
         model.build_all()
-        feed_dict = model._fill_feed_dict(partition_name='train')
-        instances = feed_dict[model.instances_placeholder]
+        batch_iterator = model._fill_feed_dict(partition_name='train')
+        instances = next(batch_iterator)[model.instances_placeholder]
         self.assertEqual(instances.shape, (batch_size, self.max_num_steps,
                                            self.dataset.feature_vector_size))
+        # As the maximum sequence lenght is 2, this should run exactly two times
+        instances = next(batch_iterator)[model.instances_placeholder]
+        self.assertEqual(instances.shape, (batch_size, self.max_num_steps,
+                                           self.dataset.feature_vector_size))
+        with self.assertRaises(StopIteration):
+            next(batch_iterator)
 
 
 if __name__ == '__main__':

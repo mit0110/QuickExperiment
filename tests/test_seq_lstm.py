@@ -47,7 +47,7 @@ class SeqLSTMModelTest(unittest.TestCase):
 
     def test_build_network(self):
         """Test if the SeqLSTMModels is correctly built."""
-        self.model.fit(close_session=True)
+        self.model.fit(close_session=True, training_epochs=200)
 
     def test_single_distributed_layer(self):
         """Test the model uses the same weights for the time distributed layer.
@@ -100,10 +100,14 @@ class SeqLSTMModelTest(unittest.TestCase):
                 (self.model_arguments['batch_size'], self.max_num_steps,
                  self.dataset.classes_num('train')))
             self.model._build_inputs()
+            # Build a Graph that computes predictions from the inference model.
+            logits = self.model._build_layers()
+            predictions = self.model._build_predictions(logits)
             accuracy_op, accuracy_update_op = self.model._build_evaluation(
-                logits)
+                predictions)
             sess = tf.Session()
-            sess.run(tf.local_variables_initializer())
+            sess.run([tf.global_variables_initializer(),
+                      tf.local_variables_initializer()])
             for iteration in range(iterations):
                 feed_dict = next(self.model._fill_feed_dict('train'))
                 logits_ev, _ = sess.run([logits, accuracy_update_op],

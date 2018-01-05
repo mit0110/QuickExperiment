@@ -1,13 +1,15 @@
 import numpy
 import tensorflow as tf
 
-from quick_experiment.models.mlp import MLPModel
+from quick_experiment.models.lstm import LSTMModel
 
 
-class LSTMModel(MLPModel):
+class TruncLSTMModel(LSTMModel):
     """A Recurrent Neural Network model with LSTM cells.
 
-    Predicts a single output for a sequence.
+    Predicts a single output for a sequence. It uses truncated
+    back-propagation through time. With this, it can receive sequences of
+    arbitrary length.
 
     Args:
         dataset (:obj: SequenceDataset): An instance of SequenceDataset (or
@@ -28,7 +30,7 @@ class LSTMModel(MLPModel):
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
                  logs_dirname='.', log_values=True, dropout_ratio=0.3,
                  max_num_steps=30, **kwargs):
-        super(LSTMModel, self).__init__(
+        super(TruncLSTMModel, self).__init__(
             dataset, batch_size=batch_size, logs_dirname=logs_dirname,
             name=name, log_values=log_values, **kwargs)
         self.hidden_layer_size = hidden_layer_size
@@ -130,6 +132,21 @@ class LSTMModel(MLPModel):
             )
         return logits
 
+    def _build_state_variables(self, cell):
+        # Get the initial state and make a variable out of it
+        # to enable updating its value.
+        state_c, state_h = cell.zero_state(self.batch_size, tf.float32)
+        return (tf.contrib.rnn.LSTMStateTuple(
+            tf.Variable(state_c, trainable=False),
+            tf.Variable(state_h, trainable=False)))
+
+    @staticmethod
+    def _get_state_update_op(state_variables, new_state):
+        # Add an operation to update the train states with the last state
+        # Assign the new state to the state variables on this layer
+        return (state_variables[0].assign(new_state[0]),
+                state_variables[1].assign(new_state[1]))
+
     def _build_rnn_cell(self):
         return tf.contrib.rnn.BasicLSTMCell(
             self.hidden_layer_size, forget_bias=1.0)
@@ -138,16 +155,23 @@ class LSTMModel(MLPModel):
         # The recurrent layer
         lstm_cell = self._build_rnn_cell()
         with tf.name_scope('recurrent_layer') as scope:
+            # Get the initial state. States will be a LSTMStateTuples.
+            state_variable = self._build_state_variables(lstm_cell)
             # outputs is a Tensor shaped [batch_size, max_time,
             # cell.output_size].
             # State is a Tensor shaped [batch_size, cell.state_size]
-            outputs, state = tf.nn.dynamic_rnn(
+            outputs, new_state = tf.nn.dynamic_rnn(
                 lstm_cell, inputs=tf.cast(input_op, tf.float32),
                 sequence_length=self.batch_lengths, scope=scope,
-                initial_state=lstm_cell.zero_state(
-                    self.batch_size, tf.float32))
-            # We take only the last predicted output
+                initial_state=state_variable)
             last_output = self.reshape_output(outputs, self.batch_lengths)
+            # We take only the last predicted output
+            # Define the state operations. This wont execute now.
+            self.last_state_op = self._get_state_update_op(state_variable,
+                                                           new_state)
+            self.reset_state_op = self._get_state_update_op(
+                state_variable,
+                lstm_cell.zero_state(self.batch_size, tf.float32))
         return last_output
 
     def log_gradients(self, gradients):
@@ -185,16 +209,45 @@ class LSTMModel(MLPModel):
         """
         batch = self.dataset.next_batch(
             self.batch_size, partition_name, pad_sequences=True,
-            max_sequence_length=self.max_num_steps, reshuffle=reshuffle)
+            step_size=self.max_num_steps, reshuffle=reshuffle)
         if batch is None:
             raise ValueError('Batch is None')
         instances, labels, lengths = batch
+        step_size = self.max_num_steps or instances.shape[1]
+        assert instances.shape[1] % step_size == 0
+        for start_index in range(0, instances.shape[1], step_size):
+            feed_dict = self._get_step_dict(instances, labels, lengths,
+                                            start_index, step_size)
+            yield feed_dict
+
+    def _get_step_dict(self, instances, labels, lengths, start_index,
+                       step_size):
+        step_instances = instances[:, start_index: start_index + step_size]
+        step_lengths = numpy.clip(
+            numpy.where(lengths >= start_index, lengths - start_index, 0),
+            a_max=self.max_num_steps, a_min=0)
         feed_dict = {
-            self.instances_placeholder: instances.astype(numpy.float32),
-            self.lengths_placeholder: lengths,
+            self.instances_placeholder: step_instances,
+            self.lengths_placeholder: step_lengths,
             self.labels_placeholder: labels
         }
         return feed_dict
+
+    def run_train_op(self, epoch, loss, partition_name, train_op):
+        # Reset the neural_network_value
+        self.sess.run(self.reset_state_op)
+        # We need to run the train op cutting the sequence in chunks of
+        # max_steps size
+        loss_value = []
+        feed_dict = None
+        for feed_dict in self._fill_feed_dict(partition_name):
+            feed_dict[self.dropout_placeholder] = self.dropout_ratio
+            result = self.sess.run(
+                [train_op, self.last_state_op, loss], feed_dict=feed_dict)
+            loss_value.append(result[2])
+        if self.logs_dirname is not None and epoch % 10 is 0 and feed_dict:
+            self.write_summary(epoch, feed_dict)
+        return numpy.mean(loss_value)
 
     def predict(self, partition_name, limit=-1):
         predictions = []
@@ -203,14 +256,29 @@ class LSTMModel(MLPModel):
         with self.graph.as_default():
             while (self.dataset.has_next_batch(self.batch_size, partition_name)
                    and (limit <= 0 or len(predictions) < limit)):
-                feed_dict = self._fill_feed_dict(partition_name,
-                                                 reshuffle=False)
-                predictions.extend(self.sess.run(self.predictions,
-                                                 feed_dict=feed_dict))
-                true.append(feed_dict[self.labels_placeholder])
-
+                batch_prediction = numpy.zeros(shape=self.batch_size) - 1
+                batch_true = None
+                # This for loop will execute at least once
+                # We need to feed all steps to the network before getting the
+                # last prediction.
+                for feed_dict in self._fill_feed_dict(partition_name,
+                                                      reshuffle=False):
+                    # Labels will be always the same for all steps in batch
+                    batch_true = feed_dict[self.labels_placeholder]
+                    step_prediction = self.sess.run(self.predictions,
+                                                    feed_dict=feed_dict)
+                    # Get the last prediction
+                    for index, length in enumerate(
+                            feed_dict[self.lengths_placeholder]):
+                        if length > 0:
+                            batch_prediction[index] = step_prediction[index]
+                    assert (batch_prediction.shape[0] == self.batch_size or
+                            batch_prediction.shape[0] == batch_true.shape[0])
+                assert batch_true is not None
+                predictions.extend(batch_prediction[:batch_true.shape[0]])
+                true.extend(batch_true)
         self.dataset.reset_batch(partition_name, old_start)
-        return numpy.concatenate(true), numpy.array(predictions)
+        return numpy.array(true), numpy.array(predictions)
 
     def _build_evaluation(self, predictions):
         """Evaluate the quality of the logits at predicting the label.
@@ -240,9 +308,10 @@ class LSTMModel(MLPModel):
             old_start = self.dataset.reset_batch(partition)
             metric = None
             while self.dataset.has_next_batch(self.batch_size, partition):
-                feed_dict = self._fill_feed_dict(partition,
-                                                 reshuffle=False)
-                self.sess.run([metric_update_op], feed_dict=feed_dict)
+
+                for feed_dict in self._fill_feed_dict(partition,
+                                                      reshuffle=False):
+                    self.sess.run([metric_update_op], feed_dict=feed_dict)
                 metric = self.sess.run([metric_op])[0]
             self.dataset.reset_batch(partition, old_start)
         return metric

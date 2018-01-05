@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 
-from quick_experiment.models.lstm import LSTMModel
+from quick_experiment.models.lstm_tbptt import TruncLSTMModel
 
 
 # Copied from tensorflow github.
@@ -31,7 +31,7 @@ def safe_div(numerator, denominator, name="value"):
         name=name)
 
 
-class SeqLSTMModel(LSTMModel):
+class SeqLSTMModel(TruncLSTMModel):
     """A Recurrent Neural Network model with LSTM cells.
 
     Predicts the probability of the next element on the sequence.

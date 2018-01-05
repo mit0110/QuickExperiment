@@ -51,10 +51,15 @@ class SimpleDatasetTest(unittest.TestCase):
             batch_size=2, partition_name='train', reshuffle=False)
         self.assertEqual(batch.shape[0], 2)
         self.assertEqual(labels.shape[0], 2)
-        result = self.dataset.next_batch(batch_size=2, partition_name='train',
-                                         reshuffle=False)
+        batch, labels = self.dataset.next_batch(
+            batch_size=2, partition_name='train', reshuffle=False)
+        self.assertEqual(batch.shape[0], 1)
+        self.assertEqual(labels.shape[0], 1)
+        result = self.dataset.next_batch(
+            batch_size=2, partition_name='train', reshuffle=False)
         self.assertIsNone(result)
-        self.dataset.reset_batch()
+
+        self.dataset.reset_batch(partition_name='train')
         batch, labels = self.dataset.next_batch(
             batch_size=2, partition_name='train', reshuffle=False)
         self.assertEqual(batch.shape[0], 2)
@@ -144,7 +149,7 @@ class SequenceDatasetTest(unittest.TestCase):
         self.assertTrue(all(len(a) <= len(b) for a, b in
                             zip(instances[:-1], instances[1:])))
 
-    def test_padded_batches(self):
+    def test_pad_batches_step(self):
         """Tests the dataset produces batches of padded sentences."""
         for i in range(3):
             batch, labels, lengths = self.dataset.next_batch(
@@ -176,6 +181,16 @@ class SequenceDatasetTest(unittest.TestCase):
                 )
                 if length < batch.shape[1]:
                     self.assertAlmostEqual(0, row[length:].max(), places=3)
+
+    def test_pad_batches_max_len(self):
+        for i in range(3):
+            batch, labels, lengths = self.dataset.next_batch(
+                batch_size=10, max_sequence_length=15, partition_name='train')
+            batch = batch.astype(self.matrix.dtype)
+
+            self.assertEqual(batch.shape, (10, 15, 2))
+            self.assertEqual(labels.shape[0], 10)
+            self.assertEqual(lengths.shape[0], 10)
 
 
 class LabeledSequenceDatasetTest(unittest.TestCase):
