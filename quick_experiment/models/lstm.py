@@ -34,6 +34,8 @@ class LSTMModel(MLPModel):
         self.hidden_layer_size = hidden_layer_size
         self.max_num_steps = max_num_steps
         self.dropout_ratio = dropout_ratio
+        self.current_batch_size = None
+        self.batch_lengths = None
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -72,14 +74,36 @@ class LSTMModel(MLPModel):
         relevant = tf.gather(flat, index)
         return relevant
 
+    def _pad_batch(self, input_tensor):
+        self.current_batch_size = tf.shape(input_tensor)[0]
+        new_instances = tf.subtract(self.batch_size, tf.shape(input_tensor)[0])
+        # Pad lenghts
+        self.batch_lengths = tf.pad(self.lengths_placeholder,
+                                    paddings=[[tf.constant(0), new_instances]],
+                                    mode='CONSTANT')
+        # Pad instances
+        paddings = [[tf.constant(0), new_instances],
+                     tf.constant([0, 0]), tf.constant([0, 0])]
+        input_tensor = tf.pad(input_tensor, paddings=paddings, mode='CONSTANT')
+        # Ensure the correct shape. This is only to avoid an error with the
+        # dynamic_rnn, which needs to know the size of the batch.
+        return tf.reshape(
+            input_tensor, shape=(self.batch_size, self.max_num_steps,
+                                 self.dataset.feature_vector_size))
+
     def _build_input_layers(self):
+        # Since the model needs a fixed batch size, we extend the
+        # instances_placeholder with zeros. For training, we are sure all
+        # batches will be the same size as the reshuffle option has to be true.
+        input_tensor = self._pad_batch(self.instances_placeholder)
+
         self.dropout_placeholder = tf.placeholder_with_default(
             0.0, shape=(), name='dropout_placeholder')
         if self.dropout_ratio != 0:
             return tf.layers.dropout(
-                inputs=tf.cast(self.instances_placeholder, tf.float32),
+                inputs=tf.cast(input_tensor, tf.float32),
                 rate=self.dropout_placeholder)
-        return self.instances_placeholder
+        return input_tensor
 
     def _build_layers(self):
         """Builds the model up to the logits calculation"""
@@ -89,6 +113,10 @@ class LSTMModel(MLPModel):
         if self.dropout_ratio != 0:
             output = tf.layers.dropout(
                 inputs=output, rate=self.dropout_placeholder)
+
+        # Reshape again to real batch size
+        output = output[:self.current_batch_size, :]
+
         # The last layer is for the classifier
         with tf.name_scope('logits_layer') as scope:
             logits = tf.contrib.layers.fully_connected(
@@ -132,9 +160,9 @@ class LSTMModel(MLPModel):
             # State is a Tensor shaped [batch_size, cell.state_size]
             outputs, new_state = tf.nn.dynamic_rnn(
                 lstm_cell, inputs=tf.cast(input_op, tf.float32),
-                sequence_length=self.lengths_placeholder, scope=scope,
+                sequence_length=self.batch_lengths, scope=scope,
                 initial_state=state_variable)
-            last_output = self.reshape_output(outputs, self.lengths_placeholder)
+            last_output = self.reshape_output(outputs, self.batch_lengths)
             # We take only the last predicted output
             # Define the state operations. This wont execute now.
             self.last_state_op = self._get_state_update_op(state_variable,
@@ -222,7 +250,7 @@ class LSTMModel(MLPModel):
     def predict(self, partition_name, limit=-1):
         predictions = []
         true = []
-        self.dataset.reset_batch()
+        old_start = self.dataset.reset_batch(partition_name)
         with self.graph.as_default():
             while (self.dataset.has_next_batch(self.batch_size, partition_name)
                    and (limit <= 0 or len(predictions) < limit)):
@@ -242,24 +270,24 @@ class LSTMModel(MLPModel):
                             feed_dict[self.lengths_placeholder]):
                         if length > 0:
                             batch_prediction[index] = step_prediction[index]
+                    assert (batch_prediction.shape[0] == self.batch_size or
+                            batch_prediction.shape[0] == batch_true.shape[0])
                 assert batch_true is not None
-                assert len(batch_prediction) == batch_true.shape[0]
-                predictions.extend(batch_prediction)
+                predictions.extend(batch_prediction[:batch_true.shape[0]])
                 true.extend(batch_true)
-
+        self.dataset.reset_batch(partition_name, old_start)
         return numpy.array(true), numpy.array(predictions)
 
-    def _build_evaluation(self, logits):
+    def _build_evaluation(self, predictions):
         """Evaluate the quality of the logits at predicting the label.
 
         Args:
-            logits: Logits tensor, float - [batch_size, max_num_steps,
-                feature_vector + 1].
+            predictions: Predictions tensor, int - [current_batch_size,
+                max_num_steps].
         Returns:
             A scalar int32 tensor with the number of examples (out of
             batch_size) that were predicted correctly.
         """
-        predictions = self._build_predictions(logits)
         # predictions has shape [batch_size, max_num_steps]
         with tf.name_scope('evaluation_performance'):
             # We use the mask to ignore predictions outside the sequence length.
@@ -275,11 +303,13 @@ class LSTMModel(MLPModel):
                            if i.name.split('/')[0] == 'evaluation_performance']
             self.sess.run([tf.variables_initializer(stream_vars)])
             metric_op, metric_update_op = self.evaluation_op
-            self.dataset.reset_batch()
+            old_start = self.dataset.reset_batch(partition)
             metric = None
             while self.dataset.has_next_batch(self.batch_size, partition):
+
                 for feed_dict in self._fill_feed_dict(partition,
                                                       reshuffle=False):
                     self.sess.run([metric_update_op], feed_dict=feed_dict)
                 metric = self.sess.run([metric_op])[0]
+            self.dataset.reset_batch(partition, old_start)
         return metric

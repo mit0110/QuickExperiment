@@ -70,6 +70,8 @@ class SeqLSTMModel(LSTMModel):
         # outputs is a Tensor shaped
         # [batch_size, max_num_steps, hidden_size].
 
+        # Reshape again to real batch size
+        output = output[:self.current_batch_size, :, :]
         # The last layer is for the classifier
         output = tf.reshape(output, [-1, self.hidden_layer_size])
         # Adding dropout
@@ -86,15 +88,6 @@ class SeqLSTMModel(LSTMModel):
         # logits is now a tensor [batch_size, max_num_steps, classes_num]
         return logits
 
-    def _build_input_layers(self):
-        """Applies a dropout to the input instances"""
-        self.dropout_placeholder = tf.placeholder_with_default(
-            0.0, shape=(), name='dropout_placeholder')
-        if self.dropout_ratio != 0:
-            return tf.layers.dropout(inputs=self.instances_placeholder,
-                                     rate=self.dropout_placeholder)
-        return self.instances_placeholder
-
     def _build_recurrent_layer(self, input_op):
         # The recurrent layer
         rnn_cell = tf.contrib.rnn.BasicLSTMCell(
@@ -107,7 +100,7 @@ class SeqLSTMModel(LSTMModel):
             # State is a Tensor shaped [batch_size, cell.state_size]
             outputs, new_state = tf.nn.dynamic_rnn(
                 rnn_cell, inputs=input_op,
-                sequence_length=self.lengths_placeholder, scope=scope,
+                sequence_length=self.batch_lengths, scope=scope,
                 initial_state=state_variable)
             # Define the state operations. This wont execute now.
             self.last_state_op = self._get_state_update_op(state_variable,
@@ -123,12 +116,12 @@ class SeqLSTMModel(LSTMModel):
         Args:
             logits: Tensor - [batch_size, max_num_steps, classes_num]
         """
-        mask = tf.sequence_mask(self.lengths_placeholder, self.max_num_steps)
+        mask = tf.sequence_mask(self.batch_lengths, self.max_num_steps)
         loss = tf.nn.softmax_cross_entropy_with_logits(
             logits=logits, labels=self.labels_placeholder)
         loss = tf.div(
             tf.reduce_sum(tf.boolean_mask(loss, mask)),
-            tf.cast(tf.reduce_sum(self.lengths_placeholder), loss.dtype))
+            tf.cast(tf.reduce_sum(self.batch_lengths), loss.dtype))
         return loss
 
     def run_train_op(self, epoch, loss, partition_name, train_op):
@@ -177,18 +170,17 @@ class SeqLSTMModel(LSTMModel):
         # observed element in the sequence.
         return tf.argmax(logits, -1, name='batch_predictions')
 
-    def _build_evaluation(self, logits):
+    def _build_evaluation(self, predictions):
         """Evaluate the quality of the logits at predicting the label.
 
         Args:
-            logits: Logits tensor, float - [batch_size, max_num_steps,
-                feature_vector + 1].
+            predictions: Predictions tensor, int - [current_batch_size,
+                max_num_steps].
         Returns:
             A scalar int32 tensor with the number of examples (out of
             batch_size) that were predicted correctly.
         """
-        predictions = self._build_predictions(logits)
-        # predictions has shape [batch_size, max_num_steps]
+        # predictions has shape [current_batch_size, max_num_steps]
         with tf.name_scope('evaluation_performance'):
             mask = tf.sequence_mask(
                 self.lengths_placeholder, maxlen=self.max_num_steps,
@@ -212,7 +204,7 @@ class SeqLSTMModel(LSTMModel):
     def predict(self, partition_name, limit=-1):
         predictions = []
         true = []
-        self.dataset.reset_batch()
+        old_start = self.dataset.reset_batch(partition_name)
         with self.graph.as_default():
             while (self.dataset.has_next_batch(self.batch_size, partition_name)
                    and (limit <= 0 or len(predictions) < limit)):
@@ -225,5 +217,5 @@ class SeqLSTMModel(LSTMModel):
                                                feed_dict)
                 predictions.extend(batch_prediction)
                 true.extend(batch_true)
-
+        self.dataset.reset_batch(partition_name, old_start)
         return numpy.array(true), numpy.array(predictions)

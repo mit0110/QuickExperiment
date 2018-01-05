@@ -175,8 +175,8 @@ class MLPModel(BaseModel):
             self.loss_op = self._build_loss(logits)
             # Add to the Graph the Ops that calculate and apply gradients.
             self.train_op = self._build_train_operation(self.loss_op)
-            self.evaluation_op = self._build_evaluation(logits)
             self.predictions = self._build_predictions(logits)
+            self.evaluation_op = self._build_evaluation(self.predictions)
 
             if self.logs_dirname is not None:
                 # Summarize metrics for TensorBoard
@@ -189,7 +189,8 @@ class MLPModel(BaseModel):
             init = tf.global_variables_initializer()
             init_local = tf.local_variables_initializer()
             gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.48)
-            self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
+            self.sess = tf.Session(config=tf.ConfigProto(
+                gpu_options=gpu_options, log_device_placement=False))
 
             if self.logs_dirname is not None:
                 # Instantiate a SummaryWriter to output summaries and the Graph.
@@ -220,11 +221,9 @@ class MLPModel(BaseModel):
                     performance = self.evaluate()
                     print('Validation performance {}'.format(performance))
                     self.validation_performance.append((epoch, performance))
-                    sys.stdout.flush()
                     performance = self.evaluate('train')
                     print('Training performance {}'.format(performance))
                     self.training_performance.append((epoch, performance))
-                    sys.stdout.flush()
 
         if self.logs_dirname is not None:
             self.saver.save(
@@ -251,7 +250,7 @@ class MLPModel(BaseModel):
 
     def evaluate(self, partition='validation'):
         true_count = 0
-        self.dataset.reset_batch()
+        self.dataset.reset_batch(partition)
         batch = self.dataset.next_batch(self.batch_size, partition,
                                         reshuffle=False)
         while batch is not None:
@@ -268,7 +267,7 @@ class MLPModel(BaseModel):
     def predict(self, partition_name):
         predictions = []
         true = []
-        self.dataset.reset_batch()
+        self.dataset.reset_batch(partition_name)
         with self.graph.as_default():
             batch = self.dataset.next_batch(self.batch_size, 'validation',
                                             reshuffle=False)

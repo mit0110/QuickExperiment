@@ -2,7 +2,7 @@ import logging
 import numpy
 import os
 
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 from quick_experiment import utils
 from scipy import sparse
 
@@ -140,7 +140,7 @@ class SimpleDataset(BaseDataset):
 
     def __init__(self):
         super(SimpleDataset, self).__init__()
-        self._last_batch_end = 0
+        self._last_batch_end = defaultdict(lambda: 0)
         self._classes_num = 0
 
     def num_examples(self, partition_name='train'):
@@ -233,11 +233,13 @@ class SimpleDataset(BaseDataset):
             directory_name, 'indices', name))
         self.create_from_matrixes(instances, indices, labels)
 
-    def reset_batch(self):
-        self._last_batch_end = 0
+    def reset_batch(self, partition_name='train', value=0):
+        old_start = self._last_batch_end[partition_name]
+        self._last_batch_end[partition_name] = value
+        return old_start
 
     def has_next_batch(self, batch_size, partition_name='train'):
-        return self._last_batch_end + batch_size <= self.num_examples(
+        return self._last_batch_end[partition_name] < self.num_examples(
             partition_name)
 
     def next_batch(self, batch_size, partition_name='train', reshuffle=True):
@@ -252,29 +254,34 @@ class SimpleDataset(BaseDataset):
                 batches from.
             reshuffle (bool): If True, when the dataset has been completly
                 traversed, the instances and labels are shuffled and then
-                returned again.
+                returned again. Otherwise, the last batch will only have the
+                remaining instances.
         """
-        start = self._last_batch_end
+        start = self._last_batch_end[partition_name]
+        if start >= self.num_examples(partition_name) and not reshuffle:
+            return None
 
-        if not self.has_next_batch(batch_size, partition_name):
-            if not reshuffle:
-                return None
-            # Shuffle the data
-            perm = numpy.arange(self.num_examples())
-            numpy.random.shuffle(perm)
-            new_labels = None
-            if self.datasets[partition_name].labels is not None:
-                new_labels = self.datasets[partition_name].labels[perm]
-            self.datasets[partition_name] = Partition(
-                self.datasets[partition_name].instances[perm], new_labels)
-            # Start next iteration
-            start = 0
-            self._last_batch_end = batch_size
-            assert batch_size <= self.num_examples(partition_name)
+        if start + batch_size > self.num_examples(partition_name):
+            if reshuffle:
+                # Shuffle the data
+                perm = numpy.arange(self.num_examples())
+                numpy.random.shuffle(perm)
+                new_labels = None
+                if self.datasets[partition_name].labels is not None:
+                    new_labels = self.datasets[partition_name].labels[perm]
+                self.datasets[partition_name] = Partition(
+                    self.datasets[partition_name].instances[perm], new_labels)
+                # Start next iteration
+                start = 0
+                self._last_batch_end[partition_name] = batch_size
+                assert batch_size <= self.num_examples(partition_name)
+            else:
+                self._last_batch_end[partition_name] = self.num_examples(
+                    partition_name)
         else:
-            self._last_batch_end += batch_size
+            self._last_batch_end[partition_name] += batch_size
 
-        end = self._last_batch_end
+        end = self._last_batch_end[partition_name]
         batch_labels = None
         if self.datasets[partition_name].labels is not None:
             batch_labels = self.datasets[partition_name].labels[start:end]
