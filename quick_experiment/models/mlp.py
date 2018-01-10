@@ -284,6 +284,12 @@ class MLPModel(BaseModel):
                                                 reshuffle=False)
         return numpy.concatenate(true), numpy.array(predictions)
 
+    def load(self, checkpoint_filename):
+        """Load the model from disk"""
+        if not self.graph:
+            self.build_all()
+        self.saver.restore(self.sess, checkpoint_filename)
+
     def count_trainable_parameters(self):
         with self.graph.as_default():
             total_parameters = 0
