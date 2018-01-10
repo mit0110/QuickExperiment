@@ -205,8 +205,10 @@ class LSTMModel(MLPModel):
                    and (limit <= 0 or len(predictions) < limit)):
                 feed_dict = self._fill_feed_dict(partition_name,
                                                  reshuffle=False)
-                predictions.extend(self.sess.run(self.predictions,
-                                                 feed_dict=feed_dict))
+                pred = self.sess.run(self.predictions, feed_dict=feed_dict)
+                if isinstance(pred, numpy.float32):
+                    pred = [pred]
+                predictions.extend(pred)
                 true.append(feed_dict[self.labels_placeholder])
 
         self.dataset.reset_batch(partition_name, old_start)
