@@ -36,6 +36,7 @@ class LSTMModel(MLPModel):
         self.dropout_ratio = dropout_ratio
         self.current_batch_size = None
         self.batch_lengths = None
+        self.state_op = None
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -146,6 +147,7 @@ class LSTMModel(MLPModel):
                 sequence_length=self.batch_lengths, scope=scope,
                 initial_state=lstm_cell.zero_state(
                     self.batch_size, tf.float32))
+            self.state_op = outputs
             # We take only the last predicted output
             last_output = self.reshape_output(outputs, self.batch_lengths)
         return last_output
