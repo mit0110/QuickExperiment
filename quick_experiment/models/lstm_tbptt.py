@@ -27,17 +27,12 @@ class TruncLSTMModel(LSTMModel):
         **kwargs: Additional arguments.
     """
 
-    def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
-                 logs_dirname='.', log_values=True, dropout_ratio=0.3,
-                 max_num_steps=30, **kwargs):
+    def __init__(self, dataset, use_prev_state=True, **kwargs):
         super(TruncLSTMModel, self).__init__(
-            dataset, batch_size=batch_size, logs_dirname=logs_dirname,
-            name=name, log_values=log_values, **kwargs)
-        self.hidden_layer_size = hidden_layer_size
-        self.max_num_steps = max_num_steps
-        self.dropout_ratio = dropout_ratio
+            dataset, **kwargs)
         self.current_batch_size = None
         self.batch_lengths = None
+        self.use_prev_state = use_prev_state
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -242,9 +237,14 @@ class TruncLSTMModel(LSTMModel):
         feed_dict = None
         for feed_dict in self._fill_feed_dict(partition_name):
             feed_dict[self.dropout_placeholder] = self.dropout_ratio
-            result = self.sess.run(
-                [train_op, self.last_state_op, loss], feed_dict=feed_dict)
-            loss_value.append(result[2])
+            if self.use_prev_state:
+                result = self.sess.run(
+                    [train_op, loss, self.last_state_op], feed_dict=feed_dict)
+            else:
+                self.sess.run(self.reset_state_op)
+                result = self.sess.run(
+                    [train_op, loss], feed_dict=feed_dict)
+            loss_value.append(result[1])
         if self.logs_dirname is not None and epoch % 10 is 0 and feed_dict:
             self.write_summary(epoch, feed_dict)
         return numpy.mean(loss_value)
@@ -308,7 +308,6 @@ class TruncLSTMModel(LSTMModel):
             old_start = self.dataset.reset_batch(partition)
             metric = None
             while self.dataset.has_next_batch(self.batch_size, partition):
-
                 for feed_dict in self._fill_feed_dict(partition,
                                                       reshuffle=False):
                     self.sess.run([metric_update_op], feed_dict=feed_dict)

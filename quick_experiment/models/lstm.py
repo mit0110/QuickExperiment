@@ -38,6 +38,7 @@ class LSTMModel(MLPModel):
         self.current_batch_size = None
         self.batch_lengths = None
         self.log_gradients = log_gradients
+        self.state_op = None
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -149,6 +150,7 @@ class LSTMModel(MLPModel):
                 sequence_length=self.batch_lengths, scope=scope,
                 initial_state=lstm_cell.zero_state(
                     self.batch_size, tf.float32))
+            self.state_op = outputs
             # We take only the last predicted output
             last_output = self.reshape_output(outputs, self.batch_lengths)
         return last_output
