@@ -124,22 +124,6 @@ class SeqLSTMModel(TruncLSTMModel):
             tf.cast(tf.reduce_sum(self.batch_lengths), loss.dtype))
         return loss
 
-    def run_train_op(self, epoch, loss, partition_name, train_op):
-        # Reset the neural_network_value
-        self.sess.run(self.reset_state_op)
-        # We need to run the train op cutting the sequence in chunks of
-        # max_steps size
-        loss_value = []
-        feed_dict = None
-        for feed_dict in self._fill_feed_dict(partition_name):
-            feed_dict[self.dropout_placeholder] = self.dropout_ratio
-            result = self.sess.run(
-                [train_op, self.last_state_op, loss], feed_dict=feed_dict)
-            loss_value.append(result[2])
-        if self.logs_dirname is not None and epoch % 10 is 0 and feed_dict:
-            self.write_summary(epoch, feed_dict)
-        return numpy.mean(loss_value)
-
     def _get_step_dict(self, instances, labels, lengths, start_index,
                        step_size):
         step_instances = instances[:, start_index: start_index + step_size]
