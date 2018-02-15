@@ -22,12 +22,13 @@ class LSTMModel(MLPModel):
         max_num_steps (int): the maximum number of steps to use during the
             Back Propagation Through Time optimization. The gradients are
             going to be clipped at max_num_steps.
+        log_gradients: add an operation to log the learning gradients.
         **kwargs: Additional arguments.
     """
 
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
                  logs_dirname='.', log_values=True, dropout_ratio=0.3,
-                 max_num_steps=30, **kwargs):
+                 max_num_steps=30, log_gradients=False, **kwargs):
         super(LSTMModel, self).__init__(
             dataset, batch_size=batch_size, logs_dirname=logs_dirname,
             name=name, log_values=log_values, **kwargs)
@@ -36,6 +37,7 @@ class LSTMModel(MLPModel):
         self.dropout_ratio = dropout_ratio
         self.current_batch_size = None
         self.batch_lengths = None
+        self.log_gradients = log_gradients
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -128,6 +130,7 @@ class LSTMModel(MLPModel):
                 biases_regularizer=tf.contrib.layers.l2_regularizer,
                 trainable=True, scope=scope
             )
+
         return logits
 
     def _build_rnn_cell(self):
@@ -150,17 +153,14 @@ class LSTMModel(MLPModel):
             last_output = self.reshape_output(outputs, self.batch_lengths)
         return last_output
 
-    def log_gradients(self, gradients):
-        if self.logs_dirname is None:
-            return
+    def _log_gradients_op(self, gradients):
         for gradient, variable in gradients:
             if isinstance(gradient, tf.IndexedSlices):
                 grad_values = gradient.values
             else:
                 grad_values = gradient
-            tf.summary.scalar(variable.name, tf.reduce_sum(variable))
-            tf.summary.scalar(variable.name + "/gradients",
-                              tf.reduce_sum(grad_values))
+            # tf.summary.scalar(variable.name, tf.reduce_sum(variable))
+            tf.summary.histogram(variable.name + "/gradients", grad_values)
 
     def _build_train_operation(self, loss):
         if self.logs_dirname is not None:
@@ -169,7 +169,8 @@ class LSTMModel(MLPModel):
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         gradients = optimizer.compute_gradients(loss)
-        # self.log_gradients(gradients)
+        if self.log_gradients and self.logs_dirname is not None:
+            self._log_gradients_op(gradients)
         return optimizer.apply_gradients(gradients, global_step=global_step)
 
     def _fill_feed_dict(self, partition_name='train', reshuffle=True):
