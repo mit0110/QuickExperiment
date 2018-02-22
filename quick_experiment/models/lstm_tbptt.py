@@ -170,16 +170,13 @@ class TruncLSTMModel(LSTMModel):
         return last_output
 
     def log_gradients(self, gradients):
-        if self.logs_dirname is None:
-            return
         for gradient, variable in gradients:
             if isinstance(gradient, tf.IndexedSlices):
                 grad_values = gradient.values
             else:
                 grad_values = gradient
-            tf.summary.scalar(variable.name, tf.reduce_sum(variable))
-            tf.summary.scalar(variable.name + "/gradients",
-                              tf.reduce_sum(grad_values))
+            # tf.summary.scalar(variable.name, tf.reduce_sum(variable))
+            tf.summary.histogram(variable.name + "/gradients", grad_values)
 
     def _build_train_operation(self, loss):
         if self.logs_dirname is not None:
@@ -188,7 +185,8 @@ class TruncLSTMModel(LSTMModel):
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         gradients = optimizer.compute_gradients(loss)
-        # self.log_gradients(gradients)
+        if self.log_gradients and self.logs_dirname is not None:
+            self._log_gradients_op(gradients)
         return optimizer.apply_gradients(gradients, global_step=global_step)
 
     def _fill_feed_dict(self, partition_name='train', reshuffle=True):
