@@ -37,14 +37,8 @@ class SeqLSTMModel(TruncLSTMModel):
     Predicts the probability of the next element on the sequence.
     """
 
-    def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
-                 logs_dirname='.', log_values=True,
-                 max_num_steps=30, dropout_ratio=0.3, **kwargs):
-        super(SeqLSTMModel, self).__init__(
-            dataset, name, hidden_layer_size=hidden_layer_size,
-            batch_size=batch_size, dropout_ratio=dropout_ratio,
-            logs_dirname=logs_dirname, log_values=log_values,
-            max_num_steps=max_num_steps, **kwargs)
+    def __init__(self, dataset, **kwargs):
+        super(SeqLSTMModel, self).__init__(dataset, **kwargs)
         self.output_size = self.dataset.classes_num()
 
     def _build_inputs(self):
