@@ -82,10 +82,12 @@ class SeqLSTMModel(TruncLSTMModel):
         # logits is now a tensor [batch_size, max_num_steps, classes_num]
         return logits
 
+    def _build_rnn_cell(self):
+        return tf.contrib.rnn.BasicLSTMCell(self.hidden_layer_size)
+
     def _build_recurrent_layer(self, input_op):
         # The recurrent layer
-        rnn_cell = tf.contrib.rnn.BasicLSTMCell(
-            self.hidden_layer_size, forget_bias=1.0)
+        rnn_cell = self._build_rnn_cell()
         with tf.name_scope('recurrent_layer') as scope:
             # Get the initial state. States will be a LSTMStateTuples.
             state_variable = self._build_state_variables(rnn_cell)

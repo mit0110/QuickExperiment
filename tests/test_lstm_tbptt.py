@@ -129,7 +129,7 @@ class TruncLSTMModelTest(unittest.TestCase):
         instances = next(batch_iterator)[model.instances_placeholder]
         self.assertEqual(instances.shape, (batch_size, self.max_num_steps,
                                            self.dataset.feature_vector_size))
-        # As the maximum sequence lenght is 2, this should run exactly two times
+        # As the maximum sequence length is 2, this should run exactly two times
         instances = next(batch_iterator)[model.instances_placeholder]
         self.assertEqual(instances.shape, (batch_size, self.max_num_steps,
                                            self.dataset.feature_vector_size))

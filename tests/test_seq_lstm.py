@@ -174,12 +174,13 @@ class SeqLSTMModelTest(unittest.TestCase):
         instances = next(batch_iterator)[self.model.instances_placeholder]
         self.assertEqual(instances.shape, (self.batch_size, self.max_num_steps,
                                            self.dataset.feature_vector_size))
-        # As the maximum sequence lenght is 2, this should run exactly two times
+        # As the maximum sequence length is 2, this should run exactly two times
         instances = next(batch_iterator)[self.model.instances_placeholder]
         self.assertEqual(instances.shape, (self.batch_size, self.max_num_steps,
                                            self.dataset.feature_vector_size))
         with self.assertRaises(StopIteration):
             next(batch_iterator)
+
 
 if __name__ == '__main__':
     unittest.main()
