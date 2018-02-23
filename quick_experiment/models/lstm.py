@@ -28,7 +28,8 @@ class LSTMModel(MLPModel):
 
     def __init__(self, dataset, name=None, hidden_layer_size=0, batch_size=None,
                  logs_dirname='.', log_values=True, dropout_ratio=0.3,
-                 max_num_steps=30, log_gradients=False, **kwargs):
+                 max_num_steps=30, log_gradients=False, learning_rate=0.001,
+                 **kwargs):
         super(LSTMModel, self).__init__(
             dataset, batch_size=batch_size, logs_dirname=logs_dirname,
             name=name, log_values=log_values, **kwargs)
@@ -39,6 +40,7 @@ class LSTMModel(MLPModel):
         self.batch_lengths = None
         self.log_gradients = log_gradients
         self.state_op = None
+        self.learning_rate = learning_rate
 
     def _build_inputs(self):
         """Generate placeholder variables to represent the input tensors."""
@@ -167,7 +169,7 @@ class LSTMModel(MLPModel):
     def _build_train_operation(self, loss):
         if self.logs_dirname is not None:
             tf.summary.scalar('loss', loss)
-        optimizer = tf.train.AdamOptimizer()
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         gradients = optimizer.compute_gradients(loss)

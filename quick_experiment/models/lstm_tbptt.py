@@ -181,7 +181,7 @@ class TruncLSTMModel(LSTMModel):
     def _build_train_operation(self, loss):
         if self.logs_dirname is not None:
             tf.summary.scalar('loss', loss)
-        optimizer = tf.train.AdamOptimizer(0.001)
+        optimizer = tf.train.AdamOptimizer(self.learning_rate)
         # Create a variable to track the global step.
         global_step = tf.Variable(0, name='global_step', trainable=False)
         gradients = optimizer.compute_gradients(loss)
