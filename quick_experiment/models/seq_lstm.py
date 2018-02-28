@@ -105,7 +105,7 @@ class SeqLSTMModel(TruncLSTMModel):
             self.reset_state_op = self._get_state_update_op(
                 state_variable,
                 rnn_cell.zero_state(self.batch_size, tf.float32))
-        return outputs
+        return tf.concat(outputs, axis=1) 
 
     def _build_loss(self, logits):
         """Calculates the average binary cross entropy.
@@ -256,13 +256,37 @@ class SeqBiLSTMModel(SeqLSTMModel):
             # We take only the last predicted output. Each output has shape
             # [batch_size, cell.output_size], and when we concatenate them
             # the result has shape [batch_size, 2*cell.output_size]
-            last_output_fw = self.reshape_output(output_fw, self.batch_lengths)
-            last_output_bw = self.reshape_output(output_bw, self.batch_lengths)
             self.last_state_op = self._get_state_update_op(state_variables,
-                                                           new_states)
+                                                           *new_states)
             self.reset_state_op = self._get_state_update_op(
                 state_variables,
                 lstm_cell_fw.zero_state(self.batch_size, tf.float32),
                 lstm_cell_bw.zero_state(self.batch_size, tf.float32))
-        return tf.concat([last_output_fw, last_output_bw], axis=1)
+        return tf.concat([output_fw, output_bw], axis=1)
+
+    def _build_layers(self):
+        """Builds the model up to the logits calculation"""
+        input = self._build_input_layers()
+        output = self._build_recurrent_layer(input)
+        # outputs is a Tensor shaped
+        # [batch_size, max_num_steps, hidden_size].
+
+        # Reshape again to real batch size
+        output = output[:self.current_batch_size, :, :]
+        # The last layer is for the classifier. BIDIRECTIONAL state is
+        # double size
+        output = tf.reshape(output, [-1, self.hidden_layer_size*2])
+        # Adding dropout
+        output = tf.layers.dropout(inputs=output,
+                                   rate=self.dropout_placeholder)
+        logits = tf.layers.dense(
+            output, self.output_size,
+            kernel_initializer=tf.uniform_unit_scaling_initializer(),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-5),
+            bias_regularizer=tf.contrib.layers.l2_regularizer(1e-5),
+            use_bias=True)
+        logits = tf.reshape(
+            logits, [-1, int(self.max_num_steps), int(self.output_size)])
+        # logits is now a tensor [batch_size, max_num_steps, classes_num]
+        return logits
 
