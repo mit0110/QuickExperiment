@@ -257,8 +257,7 @@ class TruncLSTMModel(LSTMModel):
                 batch_prediction = numpy.zeros(shape=self.batch_size) - 1
                 batch_true = None
                 # This for loop will execute at least once
-                # We need to feed all steps to the network before getting the
-                # last prediction.
+                # We need to feed all steps to the network.
                 for feed_dict in self._fill_feed_dict(partition_name,
                                                       reshuffle=False):
                     # Labels will be always the same for all steps in batch

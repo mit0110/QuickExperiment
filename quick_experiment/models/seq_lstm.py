@@ -6,6 +6,7 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 
 from quick_experiment.models.lstm_tbptt import TruncLSTMModel
+from quick_experiment.models.bi_lstm import BiLSTMModel
 
 
 # Copied from tensorflow github.
@@ -199,3 +200,69 @@ class SeqLSTMModel(TruncLSTMModel):
                 true.extend(batch_true)
         self.dataset.reset_batch(partition_name, old_start)
         return numpy.array(true), numpy.array(predictions)
+
+
+class SeqBiLSTMModel(SeqLSTMModel):
+    """A Recurrent Neural Network model with LSTM bidirectional cells.
+
+    Predicts the probability of the next element on the sequence."""
+
+    def _build_rnn_cell(self):
+        return (tf.contrib.rnn.BasicLSTMCell(self.hidden_layer_size,
+                                             forget_bias=1.0),
+                tf.contrib.rnn.BasicLSTMCell(self.hidden_layer_size,
+                                             forget_bias=1.0))
+
+    def _build_state_variables(self, cell_fw, cell_bw):
+        # Get the initial state and make a variable out of it
+        # to enable updating its value.
+        state_c_fw, state_h_fw = cell_fw.zero_state(self.batch_size, tf.float32)
+        state_c_bw, state_h_bw = cell_bw.zero_state(self.batch_size, tf.float32)
+        return (
+            tf.contrib.rnn.LSTMStateTuple(
+                tf.Variable(state_c_fw, trainable=False),
+                tf.Variable(state_h_fw, trainable=False)),
+            tf.contrib.rnn.LSTMStateTuple(
+                tf.Variable(state_c_bw, trainable=False),
+                tf.Variable(state_h_bw, trainable=False)),
+        )
+
+    @staticmethod
+    def _get_state_update_op(state_variables, new_state_fw, new_state_bw):
+        # Add an operation to update the train states with the last state
+        # Assign the new state to the state variables on this layer
+        state_fw, state_bw = state_variables
+        return (state_fw[0].assign(new_state_fw[0]),
+                state_fw[1].assign(new_state_fw[1]),
+                state_bw[0].assign(new_state_bw[0]),
+                state_bw[1].assign(new_state_bw[1])
+                )
+
+    def _build_recurrent_layer(self, input_op):
+        # The recurrent layer
+        lstm_cell_fw, lstm_cell_bw = self._build_rnn_cell()
+        with tf.name_scope('recurrent_layer') as scope:
+            state_variables = self._build_state_variables(lstm_cell_fw,
+                                                         lstm_cell_bw)
+            # outputs is a Tensor shaped [batch_size, max_time,
+            # cell.output_size].
+            # State is a Tensor shaped [batch_size, cell.state_size]
+            (output_fw, output_bw), new_states = tf.nn.bidirectional_dynamic_rnn(
+                lstm_cell_fw, lstm_cell_bw, dtype=tf.float32,
+                inputs=tf.cast(input_op, tf.float32,),
+                sequence_length=self.batch_lengths, scope=scope,
+                initial_state_fw=state_variables[0],
+                initial_state_bw=state_variables[1])
+            # We take only the last predicted output. Each output has shape
+            # [batch_size, cell.output_size], and when we concatenate them
+            # the result has shape [batch_size, 2*cell.output_size]
+            last_output_fw = self.reshape_output(output_fw, self.batch_lengths)
+            last_output_bw = self.reshape_output(output_bw, self.batch_lengths)
+            self.last_state_op = self._get_state_update_op(state_variables,
+                                                           new_states)
+            self.reset_state_op = self._get_state_update_op(
+                state_variables,
+                lstm_cell_fw.zero_state(self.batch_size, tf.float32),
+                lstm_cell_bw.zero_state(self.batch_size, tf.float32))
+        return tf.concat([last_output_fw, last_output_bw], axis=1)
+
