@@ -100,6 +100,7 @@ class SeqLSTMModel(TruncLSTMModel):
                 sequence_length=self.batch_lengths, scope=scope,
                 initial_state=state_variable)
             # Define the state operations. This wont execute now.
+            self.state_op = outputs
             self.last_state_op = self._get_state_update_op(state_variable,
                                                            new_state)
             self.reset_state_op = self._get_state_update_op(
